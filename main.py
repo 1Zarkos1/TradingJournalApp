@@ -3,10 +3,10 @@ from typing import List
 from datetime import timezone, datetime, timedelta
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, select, inspect, and_, Engine
+from sqlalchemy import create_engine, select, and_
 from sqlalchemy.orm import Session
 from tinkoff.invest import Client
-from tinkoff.invest.schemas import OperationState, OperationType, MoneyValue, Operation as Sdk_Operation
+from tinkoff.invest.schemas import OperationState, OperationType, Operation as Sdk_Operation
 
 from tables import Base, Asset, Operation, Position, initialize_db
 from utils import extract_money_amount
@@ -112,10 +112,10 @@ if __name__ == "__main__":
                         select(Operation)
                         .where(Operation.id == operation.parent_operation_id)
                     )
-                    if parent_operation:
-                        fee = extract_money_amount(operation.payment)
-                        parent_operation.fee = fee
-                        parent_operation.position.fee += fee
+                    try:
+                        parent_operation.add_fee(operation, session)
+                    except Exception:
+                        raise Exception("Parent operation is not found")
                 else:
                     # check if there is any open position for particular ticker
                     position = session.scalar(

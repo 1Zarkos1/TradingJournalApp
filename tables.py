@@ -1,15 +1,14 @@
 import os
-from pathlib import Path
 import csv
-from datetime import datetime, timedelta
+from pathlib import Path
+from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import String, ForeignKey, PrimaryKeyConstraint, Engine, select, inspect
-from sqlalchemy.orm import Session
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy import ForeignKey, Engine, select, inspect, event
+from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column, relationship
+from tinkoff.invest import Client 
 
-from tinkoff.invest import Client, schemas 
-
+from utils import extract_money_amount
 
 class Base(DeclarativeBase):
     pass
@@ -131,6 +130,11 @@ class Operation(Base):
     @property
     def payment(self) -> float:
         return self.quantity * self.share_price
+
+    def add_fee(self, api_operation):
+        fee = extract_money_amount(api_operation.payment)
+        self.fee = fee
+        self.position.fee += fee
     
     def __repr__(self) -> str:
         return f"{self.ticker} - {self.side} - {self.time} - {self.quantity} - {self.price}"
@@ -184,3 +188,16 @@ class Position(Base):
     
     def __repr__(self) -> str:
         return f"{self.ticker} - {self.side} - {self.open_price} - {self.closing_price} - {self.closed} - {self.result}"
+
+# event.listen(Position.operations, "append", Position.update)
+
+class AdditionalPayment(Base):
+    __tablename__ = "additional_payment"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(ForeignKey("asset.ticker"), nullable=True)
+    description: Mapped[str]
+    payment: Mapped[float]
+
+    def __repr__(self):
+        return f"{self.description} - {self.ticker} - {self.payment}"
