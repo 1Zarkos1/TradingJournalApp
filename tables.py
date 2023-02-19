@@ -1,13 +1,26 @@
+import os
+from pathlib import Path
+import csv
 from datetime import datetime, timedelta
 from typing import List, Optional
-from sqlalchemy import String, ForeignKey, PrimaryKeyConstraint, Engine, select
+
+from sqlalchemy import String, ForeignKey, PrimaryKeyConstraint, Engine, select, inspect
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from tinkoff.invest import Client, schemas 
 
+
 class Base(DeclarativeBase):
     pass
+
+
+def initialize_db(engine: Engine, base_mapper: Base, name: str, reset: bool=False) -> None:
+    if reset:
+        base_mapper.metadata.drop_all(engine)
+    if not os.path.exists(f'{name}') or not inspect(engine).has_table("operation"):
+        base_mapper.metadata.create_all(engine)
+
 
 class Asset(Base):
     __tablename__ = "asset"
@@ -42,14 +55,62 @@ class Asset(Base):
                 currency=stock.currency,
                 country=stock.country_of_risk,
                 sector=stock.sector,
-                short_available=stock.sell_available_flag
+                short_available=stock.short_enabled_flag
             )
             assets.append(asset)
         with Session(engine) as session:
             session.add_all(assets)
             session.commit()
 
-    def __str__(self) -> str:
+    @classmethod
+    def get_figi_to_ticker_mapping(cls, engine: Engine) -> dict:
+        with Session(engine) as session:
+            assets = session.scalars(select(cls)).all()
+        return {
+            asset.figi: asset.ticker
+            for asset in assets
+        }
+    
+    @classmethod
+    def analyze_screener(cls, engine: Engine):
+        today = datetime.now().strftime("%Y-%m-%d")
+        username = os.getlogin()
+        directory = Path(f"C:\\Users\\{username}\\Downloads")
+        files = os.listdir(directory)
+        try:
+            filename = [
+                filename for filename in files 
+                if filename.endswith(f"{today}.csv")
+            ][0]
+            print(filename)
+        except IndexError:
+            raise Exception("No screener files in specified directory")
+        
+        with open(directory/filename, 'r') as f:
+            screener_tickers = csv.DictReader(f)
+            tickers = {row["Ticker"]:{"long":"", "short":""} for row in screener_tickers}
+            with Session(engine) as session:
+                db_response = session.scalars(select(Asset).where(Asset.ticker.in_(tickers.keys()))).all()
+                for db_entry in db_response:
+                    tickers[db_entry.ticker] = {
+                        "long": True,
+                        "short": db_entry.short_available or ""
+                    }
+        write_directory = f"C:\\Users\\{username}\\Desktop\\screener_results.csv"
+        with open(write_directory, 'w', newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["ticker", "long", "short"], delimiter=",")
+            writer.writerows(
+                [
+                    {
+                        "ticker": ticker, 
+                        "long": tickers[ticker]["long"],
+                        "short": tickers[ticker]["short"],
+                    }
+                    for ticker in tickers
+                ]
+            )
+
+    def __repr__(self) -> str:
         return f"{self.ticker} - {self.figi} - {self.sector}"
 
 
@@ -71,7 +132,7 @@ class Operation(Base):
     def payment(self) -> float:
         return self.quantity * self.share_price
     
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f"{self.ticker} - {self.side} - {self.time} - {self.quantity} - {self.price}"
 
 class Position(Base):
@@ -121,5 +182,5 @@ class Position(Base):
     def resulting_percentage(self):
         return round(self.result / self.open_price, 2)
     
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f"{self.ticker} - {self.side} - {self.open_price} - {self.closing_price} - {self.closed} - {self.result}"
