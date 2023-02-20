@@ -4,9 +4,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import ForeignKey, Engine, select, inspect, event
+from sqlalchemy import ForeignKey, Engine, select, inspect, event, and_
 from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column, relationship
-from tinkoff.invest import Client 
+from tinkoff.invest import Client, schemas
 
 from utils import extract_money_amount
 
@@ -130,6 +130,22 @@ class Operation(Base):
     @property
     def payment(self) -> float:
         return self.quantity * self.share_price
+    
+    @classmethod
+    def add_operation(cls, operation: schemas.Operation, session: Session) -> None:
+        position = Position.get_related_position(operation, session)
+        operation_entry = cls(
+            id = operation.id,
+            ticker = operation.ticker,
+            position = position,
+            side = operation.operation_type,
+            time = operation.date,
+            quantity = operation.quantity,
+            price = extract_money_amount(operation.price),
+            fee = 0
+        )
+        session.add(operation_entry)
+        position.update(operation_entry, extract_money_amount(operation.payment))
 
     def add_fee(self, api_operation):
         fee = extract_money_amount(api_operation.payment)
@@ -153,6 +169,23 @@ class Position(Base):
     operations: Mapped[List["Operation"]] = relationship(back_populates="position")
     result: Mapped[float] = mapped_column(default=0)
     note: Mapped[str] = mapped_column(nullable=True)
+
+    @classmethod
+    def get_related_position(cls, operation: schemas.Operation, session: Session) -> None:
+        # check if there is any open position for particular ticker
+        position = session.scalar(
+            select(cls).where(and_(cls.closed == False, 
+                                   cls.ticker == operation.ticker))
+        )
+        if not position:
+            position = cls(
+                ticker = operation.ticker,
+                side = operation.operation_type,
+                currency = operation.currency,
+                open_price = 0,
+                result = 0
+            )
+        return position
 
     def update(self, operation: Operation, payment: float) -> None:
         self.result += payment

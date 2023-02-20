@@ -3,12 +3,12 @@ from typing import List
 from datetime import timezone, datetime, timedelta
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, select, and_
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from tinkoff.invest import Client
 from tinkoff.invest.schemas import OperationState, OperationType, Operation as Sdk_Operation
 
-from tables import Base, Asset, Operation, Position, initialize_db
+from tables import Base, Asset, Operation, Position, AdditionalPayment, initialize_db
 from utils import extract_money_amount
 
 load_dotenv(".env")
@@ -101,13 +101,20 @@ if __name__ == "__main__":
             if operation.state == EXECUTED_OPERATION:
                 # some of operations are not processed like dividends or currency trading
                 # in that case they are just logged
-                operation_type = OPERATION_TYPES.get(operation.operation_type)
-                ticker = tickers.get(operation.figi)
-                if not operation_type or not ticker:
+                operation.operation_type = OPERATION_TYPES.get(operation.operation_type)
+                operation.ticker = tickers.get(operation.figi)
+                if not operation.operation_type or not operation.ticker:
                     print(f'------{operation}-------')
                     continue
-
-                if operation_type == "Fee":
+                
+                if not operation.operation_type:
+                    payment = AdditionalPayment(
+                        ticker=operation.ticker,
+                        description=operation.type,
+                        payment=extract_money_amount(operation.payment)
+                    )
+                    session.add(payment)
+                elif operation.operation_type == "Fee":
                     parent_operation = session.scalar(
                         select(Operation)
                         .where(Operation.id == operation.parent_operation_id)
@@ -117,28 +124,5 @@ if __name__ == "__main__":
                     except Exception:
                         raise Exception("Parent operation is not found")
                 else:
-                    # check if there is any open position for particular ticker
-                    position = session.scalar(
-                        select(Position).where(and_(Position.closed == False, Position.ticker == ticker))
-                    )
-                    if not position:
-                        position = Position(
-                            ticker = ticker,
-                            side = operation_type,
-                            currency = operation.currency,
-                            open_price = 0,
-                            result = 0
-                        )
-                    operation_entry = Operation(
-                        id = operation.id,
-                        ticker = ticker,
-                        position = position,
-                        side = operation_type,
-                        time = operation.date,
-                        quantity = operation.quantity,
-                        price = extract_money_amount(operation.price),
-                        fee = 0
-                    )
-                    session.add(operation_entry)
-                    position.update(operation_entry, extract_money_amount(operation.payment))
+                    Operation.add_operation(operation, session)
         session.commit()
