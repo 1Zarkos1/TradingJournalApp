@@ -3,20 +3,20 @@ from typing import List
 from datetime import timezone, datetime, timedelta
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from tinkoff.invest import Client
 from tinkoff.invest.schemas import OperationState, OperationType, Operation as Sdk_Operation
 
-from tables import Base, Asset, Operation, Position, AdditionalPayment, initialize_db
+from tables import Base, Asset, Operation, AdditionalPayment, initialize_db, get_engine
 from utils import extract_money_amount
 
 load_dotenv(".env")
 
 API_TOKEN = os.getenv("T_TOKEN")
-DB_NAME = os.getenv("DB_NAME")
+ACCOUNT_NAME = os.getenv("DEFAULT_ACCOUNT_NAME")
+DB_NAME = f"{ACCOUNT_NAME.lower()}_{os.getenv('DB_NAME')}"
 EXECUTED_OPERATION = OperationState.OPERATION_STATE_EXECUTED
-ACCOUNT_NAME = "Trading"
 
 OPERATION_TYPES = {
     OperationType.OPERATION_TYPE_BUY: "Buy",
@@ -34,6 +34,12 @@ def get_available_accounts(client: Client) -> dict:
         for account in accounts_response
     }
     return available_accounts
+
+def get_account(available_accounts, account_name:str = ACCOUNT_NAME) -> dict:
+    try:
+        return available_accounts[account_name]
+    except KeyError:
+        raise Exception("There is no account available with that name")
 
 def get_account_operations(
         client: Client, 
@@ -72,45 +78,20 @@ def get_account_operations(
         key=lambda obj: obj.date
     )
 
-if __name__ == "__main__":
-
-    engine = create_engine(f"sqlite:///{DB_NAME}")
-
-    initialize_db(engine, Base, DB_NAME, reset=True)
-
-    with Client(API_TOKEN) as client:
-        if not Asset.assets_populated(engine):
-            Asset.populate_assets(client, engine)
-        tickers = Asset.get_figi_to_ticker_mapping(engine)
-
-        available_accounts = get_available_accounts(client)
-        try:
-            selected_account: dict = available_accounts[ACCOUNT_NAME]
-        except KeyError:
-            raise Exception("There is no account available with that name")
-        
-        operations_response = get_account_operations(
-            client, 
-            selected_account,
-            batch_interval=30
-        )
-
+def record_operations(operations_response: List[Sdk_Operation]) -> None:
     with Session(engine) as session:
         for operation in operations_response:
             # process only executed operations
             if operation.state == EXECUTED_OPERATION:
-                # some of operations are not processed like dividends or currency trading
-                # in that case they are just logged
+
                 operation.operation_type = OPERATION_TYPES.get(operation.operation_type)
                 operation.ticker = tickers.get(operation.figi)
-                if not operation.operation_type or not operation.ticker:
-                    print(f'------{operation}-------')
-                    continue
                 
                 if not operation.operation_type:
                     payment = AdditionalPayment(
                         ticker=operation.ticker,
                         description=operation.type,
+                        currency=operation.currency,
                         payment=extract_money_amount(operation.payment)
                     )
                     session.add(payment)
@@ -122,7 +103,31 @@ if __name__ == "__main__":
                     try:
                         parent_operation.add_fee(operation, session)
                     except Exception:
-                        raise Exception("Parent operation is not found")
+                        # raise Exception("Parent operation is not found")
+                        ...
                 else:
                     Operation.add_operation(operation, session)
         session.commit()
+
+if __name__ == "__main__":
+
+    engine = get_engine(DB_NAME)
+
+    initialize_db(engine, DB_NAME)
+
+    with Client(API_TOKEN) as client:
+        if not Asset.assets_populated(engine):
+            Asset.populate_assets(client, engine)
+        tickers = Asset.get_figi_to_ticker_mapping(engine)
+
+        available_accounts = get_available_accounts(client)
+        selected_account: dict = get_account(available_accounts, ACCOUNT_NAME)
+
+        operations_response = get_account_operations(
+            client, 
+            selected_account,
+            from_date=datetime(2023, 2, 17, 17, tzinfo=timezone.utc),
+            batch_interval=30
+        )
+
+    record_operations(operations_response)

@@ -2,10 +2,12 @@ import os
 import csv
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
-from sqlalchemy import ForeignKey, Engine, select, inspect, event, and_
-from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy import create_engine, ForeignKey, Engine, select, inspect, event, and_
+from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column, relationship, column_property
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.sql import case
 from tinkoff.invest import Client, schemas
 
 from utils import extract_money_amount
@@ -13,12 +15,14 @@ from utils import extract_money_amount
 class Base(DeclarativeBase):
     pass
 
-
-def initialize_db(engine: Engine, base_mapper: Base, name: str, reset: bool=False) -> None:
+def initialize_db(engine: Engine, name: str, base_mapper: DeclarativeBase = Base, reset: bool=False) -> None:
     if reset:
         base_mapper.metadata.drop_all(engine)
     if not os.path.exists(f'{name}') or not inspect(engine).has_table("operation"):
         base_mapper.metadata.create_all(engine)
+
+def get_engine(db_name: str):
+    return create_engine(f"sqlite:///{db_name}")
 
 
 class Asset(Base):
@@ -110,8 +114,7 @@ class Asset(Base):
             )
 
     def __repr__(self) -> str:
-        return f"{self.ticker} - {self.figi} - {self.sector}"
-
+        return f"Asset<ticker={self.ticker}, figi={self.figi}, name={self.name}, sector={self.sector}>"
 
 class Operation(Base):
     __tablename__ = "operation"
@@ -153,7 +156,7 @@ class Operation(Base):
         self.position.fee += fee
     
     def __repr__(self) -> str:
-        return f"{self.ticker} - {self.side} - {self.time} - {self.quantity} - {self.price}"
+        return f"Operation<ticker={self.ticker}, side={self.side}, time={self.time}, quantity={self.quantity}, price={self.price}>"
 
 class Position(Base):
     __tablename__ = "position"
@@ -166,10 +169,42 @@ class Position(Base):
     closed: Mapped[bool] = mapped_column(default=0)
     currency: Mapped[str]
     fee: Mapped[float] = mapped_column(default=0)
-    operations: Mapped[List["Operation"]] = relationship(back_populates="position")
+    operations: Mapped[List["Operation"]] = relationship(back_populates="position", lazy="subquery")
     result: Mapped[float] = mapped_column(default=0)
     note: Mapped[str] = mapped_column(nullable=True)
 
+    @hybrid_property
+    def open_date(self):
+        return min(self.operations, key=lambda opr: opr.time).time
+
+    @open_date.expression
+    def open_date(cls):
+        return (
+            select(Operation.time)
+            .where(Operation.position_id == cls.id)
+            .order_by(Operation.time).limit(1)
+            .scalar_subquery()
+        )
+    
+    @hybrid_property
+    def close_date(self):
+        return max(self.operations, key=lambda opr: opr.time).time if self.closed else ""
+
+    @close_date.expression
+    def close_date(cls):
+        return (
+            select(Operation.time)
+            .where(Operation.position_id == cls.id)
+            .order_by(Operation.time.desc()).limit(1)
+            .scalar_subquery()
+        )
+
+    def get_operations_quantity(self, side: str) -> int:
+        return sum(
+                [operation.quantity for operation in self.operations 
+                if operation.side == side]
+            )
+    
     @classmethod
     def get_related_position(cls, operation: schemas.Operation, session: Session) -> None:
         # check if there is any open position for particular ticker
@@ -187,12 +222,15 @@ class Position(Base):
             )
         return position
 
+    @classmethod
+    def get_position(cls, filter_field, filter_value, engine):
+        with Session(engine) as session:
+            results = session.scalars(select(Position).where(getattr(cls, filter_field) > filter_value)).all()
+            return results
+
     def update(self, operation: Operation, payment: float) -> None:
-        self.result += payment
-        same_side_position_quantity = sum(
-            [op.quantity for op in self.operations 
-            if op.side == operation.side]
-        )
+        self.result += round(payment, 2)
+        same_side_position_quantity = self.get_operations_quantity(operation.side)
         new_operation_price_fraction = operation.price * (operation.quantity / same_side_position_quantity)
         existing_quantity_to_total_ratio = (same_side_position_quantity - operation.quantity) / same_side_position_quantity
         if self.side == operation.side:
@@ -208,19 +246,23 @@ class Position(Base):
                 + new_operation_price_fraction
             )
 
-            opposite_side_position_quantity = sum(
-                [op.quantity for op in self.operations 
-                if op.side != operation.side]
+            opposite_side_position_quantity = self.get_operations_quantity(
+                "Sell" if operation.side == "Buy" else "Buy"
             )
+
             if same_side_position_quantity == opposite_side_position_quantity:
                 self.closed = True
 
     @property
     def resulting_percentage(self):
-        return round(self.result / self.open_price, 2)
+        return round(
+            self.result 
+            / self.get_operations_quantity(self.side) 
+            / self.open_price * 100, 2
+        ) if self.closed else 0
     
     def __repr__(self) -> str:
-        return f"{self.ticker} - {self.side} - {self.open_price} - {self.closing_price} - {self.closed} - {self.result}"
+        return f"Position<id={self.id}, ticker={self.ticker}, open_date={self.opend_date}, closed={self.closed}, result={self.result}>"
 
 # event.listen(Position.operations, "append", Position.update)
 
@@ -230,7 +272,8 @@ class AdditionalPayment(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ticker: Mapped[str] = mapped_column(ForeignKey("asset.ticker"), nullable=True)
     description: Mapped[str]
+    # currency: Mapped[str]
     payment: Mapped[float]
 
     def __repr__(self):
-        return f"{self.description} - {self.ticker} - {self.payment}"
+        return f"Payment<description={self.description}, ticker={self.ticker}, value={self.payment}>"
