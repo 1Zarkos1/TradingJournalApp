@@ -199,6 +199,10 @@ class Position(Base):
             .scalar_subquery()
         )
 
+    @property
+    def size(self) -> int:
+        return self.get_operations_quantity(self.side)
+    
     def get_operations_quantity(self, side: str) -> int:
         return sum(
                 [operation.quantity for operation in self.operations 
@@ -223,10 +227,14 @@ class Position(Base):
         return position
 
     @classmethod
-    def get_position(cls, filter_field, filter_value, engine):
+    def get_positions(cls, engine, filter_field="", filter_value="", sorting_field=""):
         with Session(engine) as session:
-            results = session.scalars(select(Position).where(getattr(cls, filter_field) > filter_value)).all()
-            return results
+            query = select(Position)
+            if filter_field and filter_value:
+                query = query.where(getattr(cls, filter_field) > filter_value)
+            if sorting_field:
+                query = query.order_by(getattr(cls, sorting_field))
+            return session.scalars(query).all()
 
     def update(self, operation: Operation, payment: float) -> None:
         self.result += round(payment, 2)
@@ -262,7 +270,7 @@ class Position(Base):
         ) if self.closed else 0
     
     def __repr__(self) -> str:
-        return f"Position<id={self.id}, ticker={self.ticker}, open_date={self.opend_date}, closed={self.closed}, result={self.result}>"
+        return f"Position<id={self.id}, ticker={self.ticker}, open_date={self.open_date}, closed={self.closed}, result={self.result}>"
 
 # event.listen(Position.operations, "append", Position.update)
 
