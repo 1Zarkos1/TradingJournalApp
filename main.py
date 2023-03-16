@@ -17,6 +17,7 @@ API_TOKEN = os.getenv("T_TOKEN")
 ACCOUNT_NAME = os.getenv("DEFAULT_ACCOUNT_NAME")
 DB_NAME = f"{ACCOUNT_NAME.lower()}_{os.getenv('DB_NAME')}"
 EXECUTED_OPERATION = OperationState.OPERATION_STATE_EXECUTED
+PAGE_SIZE = int(os.getenv("DEFAULT_PAGE_SIZE"))
 
 OPERATION_TYPES = {
     OperationType.OPERATION_TYPE_BUY: "Buy",
@@ -24,18 +25,25 @@ OPERATION_TYPES = {
     OperationType.OPERATION_TYPE_BROKER_FEE: "Fee"
 }
 
-def get_available_accounts(client: Client) -> dict:
-    accounts_response = client.users.get_accounts().accounts
-    available_accounts: dict = {
-        account.name: {
-            "id": account.id,
-            "open_date": account.opened_date
-        }
-        for account in accounts_response
-    }
-    return available_accounts
+def get_available_accounts() -> dict:
+    tokens = [os.environ.get(key) for key in dict(os.environ) if key.endswith("_TOKEN")]
+    accounts = {}
+    for token in tokens:
+        with Client(token) as client:
+            accounts_response = client.users.get_accounts().accounts
+            print(accounts_response)
+            available_accounts: dict = {
+                account.name: {
+                    "id": account.id,
+                    "open_date": account.opened_date,
+                    "token": token
+                }
+                for account in accounts_response
+            }
+            accounts = accounts | available_accounts
+    return accounts
 
-def get_account(available_accounts, account_name:str = ACCOUNT_NAME) -> dict:
+def get_account(available_accounts, account_name: str = ACCOUNT_NAME) -> dict:
     try:
         return available_accounts[account_name]
     except KeyError:
@@ -108,6 +116,14 @@ def record_operations(operations_response: List[Sdk_Operation]) -> None:
                 else:
                     Operation.add_operation(operation, session)
         session.commit()
+
+def synchronize_operations(client: Client, account_name: str, last_operation_date: datetime) -> None:
+    with Client(API_TOKEN) as client:
+        accounts = get_available_accounts(client)
+        selected_account = get_account(accounts, account_name)
+        operations_response = get_account_operations(client, selected_account, last_operation_date)
+        record_operations(operations_response)
+
 
 if __name__ == "__main__":
 
