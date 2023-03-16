@@ -1,0 +1,46 @@
+QMainWindow {
+    background-color: #171b29;
+    padding: 0px;
+    margin: 0px;
+}
+.central {
+    padding: 0px;
+    margin: 0px;
+    background-color: red;
+}
+QGridLayout {
+    padding: 0px;
+    margin: 0px;
+}
+QLabel {
+    color: white;
+    padding: 5px;
+}
+
+.even {
+    background-color: #182e40;
+}
+.header-label {
+    background-color: #202432;
+    color: #999eab;
+    font-weight: bold;
+    /* border-bottom: 1px solid white; */
+}
+.status-label {
+    border: 1px solid black;
+    background-color: green;
+    color: white;
+    padding: 1px;
+    font-weight: bold;
+}
+.ticker-label {
+    color: #00dcff;
+    /* border-style: none; */
+    font-weight: bold;
+}
+.lost {
+    background-color: red;
+}
+.current-page {
+    background-color: aqua;
+}
