@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from main import get_available_accounts, API_TOKEN, ACCOUNT_NAME, PAGE_SIZE, Client, synchronize_operations
-from tables import Asset, Position, Operation, AdditionalPayment, get_engine
+from tables import Asset, Position, Operation, AdditionalPayment, get_engine, initialize_db
 
 @dataclass
 class Field:
@@ -93,40 +93,62 @@ tradelist_fields: List[Field] = [
     )
 ]
 
-engine = get_engine('trading_invest.db')
 
 class JournalApp(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
 
         self.currentPage = 0
-        self.records = Position.get_positions(engine)
-        self.setWindowTitle("TradingJournal")
         self.setFont(QFont(["Poppins", "sans-serif"]))
         with open("style.css", "r") as f:
             self.setStyleSheet(f.read())
+        self.initAccountSelectionUI()
+
+    def initAccountSelectionUI(self, account_name: str = ACCOUNT_NAME):
+        accounts = get_available_accounts()
+        if properties := accounts.get(account_name):
+            self.setUpAppForSelectedAccount(account_name, properties)
+        else:
+            central = QWidget(self)
+            layout = QVBoxLayout()
+            central.setLayout(layout)
+            central.setProperty("class", "central")
+            self.setCentralWidget(central)
+            layout.addWidget(QLabel("Select trading account:"))
+            for account_name, account_properties in accounts.items():
+                selection_btn = QPushButton(account_name)
+                selection_btn.clicked.connect(partial(self.setUpAppForSelectedAccount, account_name, account_properties))
+                layout.addWidget(selection_btn)
+
+    def setUpAppForSelectedAccount(self, account_name, account_properties):
+        self.setWindowTitle(f"TradingJournal - {account_name}")
+        self.account = account_name
+        self._token = account_properties.get("token")
+        self._engine = get_engine(account_name)
+        initialize_db(self._engine, self._engine.url.database)
+        self._records = Position.get_positions(self._engine)
         self.initTradeListUI()
 
-    def initAccountSelectionUI(self):
-        accounts = get_available_accounts()
-        central = QWidget(self)
-        layout = QVBoxLayout()
-        central.setLayout(layout)
-        central.setProperty("class", "central")
-        self.setCentralWidget(central)
-        layout.addWidget(QLabel("Select trading account:"))
-        [layout.addWidget(QPushButton(account_name)) for account_name in accounts]
+    def drawTopMenuButtons(self, layout) -> None:
+        widget = QWidget()
+        buttonsLayout = QHBoxLayout()
+        widget.setLayout(buttonsLayout)
+        accountChange = QPushButton("Change account")
+        accountChange.clicked.connect(self.initAccountSelectionUI)
+        syncTrades = QPushButton("Sync trades")
+        syncTrades.clicked.connect(self.updateTrades)
+        buttonsLayout.addWidget(accountChange)
+        buttonsLayout.addWidget(syncTrades)
+        layout.addWidget(widget, 0, 0, 1, len(tradelist_fields))
 
     def drawTradeListHeader(self, layout: QGridLayout) -> None:
-        button = QPushButton("Sync trades")
-        button.clicked.connect(self.updateTrades)
-        layout.addWidget(button, 0, len(tradelist_fields)//2-1, 1, 3)
+        self.drawTopMenuButtons(layout)
         for col_num, field in enumerate(tradelist_fields):
             header_column = QLabel(field.header_value.upper())
-            # header_column.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            header_column.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             header_column.setProperty("class", "header-label")
             header_column.installEventFilter(self)
-            layout.addWidget(header_column, 1, col_num, alignment=Qt.AlignmentFlag.AlignHCenter)
+            layout.addWidget(header_column, 1, col_num)
 
     def eventFilter(self, a0: 'QObject', a1: 'QEvent') -> bool:
         if a1.type() == QMouseEvent.Type.MouseButtonPress and a1.button() == Qt.MouseButton.LeftButton:
@@ -135,8 +157,7 @@ class JournalApp(QMainWindow):
 
     def sortResults(self, label_obj):
         sort_field = [obj.attribute for obj in tradelist_fields if obj.header_value == label_obj.text().lower()][0]
-        self.records = Position.get_positions(engine, sorting_field=sort_field)
-        print(self.records)
+        self._records = Position.get_positions(self._engine, sorting_field=sort_field)
         self.initTradeListUI()
 
     def initTradeListUI(self):
@@ -147,7 +168,7 @@ class JournalApp(QMainWindow):
 
         self.drawTradeListHeader(layout)
 
-        currentPageRecords = self.records[self.currentPage*PAGE_SIZE:self.currentPage*PAGE_SIZE+PAGE_SIZE]
+        currentPageRecords = self._records[self.currentPage*PAGE_SIZE:self.currentPage*PAGE_SIZE+PAGE_SIZE]
         
         for row_n, position in enumerate(currentPageRecords, start=2):
             for col_n, field in enumerate(tradelist_fields):
@@ -164,7 +185,7 @@ class JournalApp(QMainWindow):
         self.setCentralWidget(central)
 
     def drawPageSelection(self, layout):
-        number_of_pages = math.ceil(len(self.records)/PAGE_SIZE)
+        number_of_pages = math.ceil(len(self._records)/PAGE_SIZE)
         page_selection_widget = QWidget()
         page_selection_layout = QHBoxLayout()
         page_selection_widget.setLayout(page_selection_layout)
@@ -192,11 +213,12 @@ class JournalApp(QMainWindow):
             filter_value = datetime.strptime(filter_value, "%m/%d/%Y")
 
     def updateTrades(self):
-        with Session(engine) as session:
+        with Session(self._engine) as session:
             last_trade = session.scalar(select(Operation).order_by(Operation.time.desc()))
-        with Client(API_TOKEN) as client:
-            synchronize_operations(client, ACCOUNT_NAME, last_trade.time)
-        self.records = Position.get_positions(engine)
+        with Client(self._token) as client:
+            synchronize_operations(client, self._engine, self.account, self._token, last_trade and last_trade.time)
+        self._records = Position.get_positions(self._engine)
+        self.initTradeListUI()
 
 
 app = QApplication(sys.argv)
