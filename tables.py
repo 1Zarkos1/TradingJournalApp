@@ -21,8 +21,8 @@ def initialize_db(engine: Engine, name: str, base_mapper: DeclarativeBase = Base
     if not os.path.exists(f'{name}') or not inspect(engine).has_table("operation"):
         base_mapper.metadata.create_all(engine)
 
-def get_engine(db_name: str):
-    return create_engine(f"sqlite:///{db_name}")
+def get_engine(account_name: str):
+    return create_engine(f"sqlite:///{account_name.lower()}_data.db")
 
 
 class Asset(Base):
@@ -45,8 +45,8 @@ class Asset(Base):
             return bool(session.scalar(select(cls)))
     
     @classmethod
-    def populate_assets(cls, client: Client, engine: Engine) -> None:
-        stocks_available = client.instruments.shares().instruments
+    def populate_assets(cls, client: Client, engine: Engine, assets_to_add: List = []) -> None:
+        stocks_available = assets_to_add or client.instruments.shares().instruments
         assets = []
         for stock in stocks_available:
             asset = cls(
@@ -280,7 +280,7 @@ class AdditionalPayment(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ticker: Mapped[str] = mapped_column(ForeignKey("asset.ticker"), nullable=True)
     description: Mapped[str]
-    # currency: Mapped[str]
+    currency: Mapped[str]
     payment: Mapped[float]
 
     def __repr__(self):
