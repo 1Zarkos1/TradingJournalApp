@@ -31,7 +31,6 @@ def get_available_accounts() -> dict:
     for token in tokens:
         with Client(token) as client:
             accounts_response = client.users.get_accounts().accounts
-            print(accounts_response)
             available_accounts: dict = {
                 account.name: {
                     "id": account.id,
@@ -86,7 +85,10 @@ def get_account_operations(
         key=lambda obj: obj.date
     )
 
-def record_operations(operations_response: List[Sdk_Operation]) -> None:
+def record_operations(operations_response: List[Sdk_Operation], engine, client) -> None:
+    if not Asset.assets_populated(engine):
+        Asset.populate_assets(client, engine)
+    tickers = Asset.get_figi_to_ticker_mapping(engine)
     with Session(engine) as session:
         for operation in operations_response:
             # process only executed operations
@@ -114,15 +116,22 @@ def record_operations(operations_response: List[Sdk_Operation]) -> None:
                         # raise Exception("Parent operation is not found")
                         ...
                 else:
+                    if not operation.ticker:
+                        asset = client.instruments.get_instrument_by(
+                            id_type=1, 
+                            id=operation.figi
+                        ).instrument
+                        Asset.populate_assets(client, engine, [asset])
+                        operation.ticker = asset.ticker
                     Operation.add_operation(operation, session)
         session.commit()
 
-def synchronize_operations(client: Client, account_name: str, last_operation_date: datetime) -> None:
-    with Client(API_TOKEN) as client:
-        accounts = get_available_accounts(client)
+def synchronize_operations(client: Client, engine, account_name: str, token: str, last_operation_date: datetime= None) -> None:
+    with Client(token) as client:
+        accounts = get_available_accounts()
         selected_account = get_account(accounts, account_name)
         operations_response = get_account_operations(client, selected_account, last_operation_date)
-        record_operations(operations_response)
+        record_operations(operations_response, engine, client)
 
 
 if __name__ == "__main__":
