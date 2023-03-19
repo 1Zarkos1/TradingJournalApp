@@ -16,11 +16,14 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QLineEdit,
     QCheckBox,
-    QSizePolicy
+    QSizePolicy,
+    QMdiSubWindow,
+    QPlainTextEdit
 )
 from PyQt6.QtCore import QSize, QtMsgType, Qt, QEvent, QObject
-from PyQt6.QtGui import QFont, QCursor, QMouseEvent
+from PyQt6.QtGui import QFont, QCursor, QMouseEvent, QIcon, QImage, QPixmap
 from sqlalchemy import select
+from sqlalchemy.sql.expression import update
 from sqlalchemy.orm import Session
 
 from main import get_available_accounts, API_TOKEN, ACCOUNT_NAME, PAGE_SIZE, Client, synchronize_operations
@@ -34,6 +37,16 @@ class Field:
     modifier: Callable = None
     class_: str = ''
     widget: QWidget = QLabel
+
+def iconModifier(widget: QLabel):
+    if text := widget.text():
+        icon_path = "static/edit.png"
+        widget.setToolTip(text)
+    else:
+        icon_path = "static/add.png"
+    image = QPixmap(icon_path)
+    image = image.scaled(15, 15)
+    widget.setPixmap(image)
 
 tradelist_fields: List[Field] = [
     Field(
@@ -88,11 +101,36 @@ tradelist_fields: List[Field] = [
         header_value="return %"
     ),
     Field(
+        widget=QLabel,
+        value=lambda pos: pos.note or "",
+        modifier=iconModifier,
+        class_="note-icon",
         attribute="note",
         header_value="note"
     )
 ]
 
+class NoteSubWindow(QWidget):
+
+    def __init__(self, parent: 'QWidget', obj: "QObject") -> None:
+        super().__init__()
+        self._parent = parent
+        self.setWindowTitle("AddNote")
+        self._editedNote = obj
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        textEdit = QPlainTextEdit(self._editedNote.toolTip())
+        okBtn = QPushButton("Save")
+        cancelBtn = QPushButton("Cancel")
+        okBtn.clicked.connect(partial(self._parent.saveNote, textEdit, self._editedNote.id))
+        cancelBtn.clicked.connect(self.close)
+        layout.addWidget(textEdit)
+        layout.addWidget(okBtn)
+        layout.addWidget(cancelBtn)
+    
 
 class JournalApp(QMainWindow):
     def __init__(self) -> None:
@@ -152,8 +190,24 @@ class JournalApp(QMainWindow):
 
     def eventFilter(self, a0: 'QObject', a1: 'QEvent') -> bool:
         if a1.type() == QMouseEvent.Type.MouseButtonPress and a1.button() == Qt.MouseButton.LeftButton:
-            self.sortResults(a0)
+            if "note" in a0.property("class"):
+                self.drawNoteSubWindow(a0)
+            else:
+                self.sortResults(a0)
         return super().eventFilter(a0, a1)
+    
+    def drawNoteSubWindow(self, obj):
+        self.subwindow = NoteSubWindow(parent=self, obj=obj)
+        self.subwindow.show()
+    
+    def changeNote(self, widget):
+        print("note")
+
+    def saveNote(self, note, posId):
+        with Session(self._engine) as session:
+            exp = update(Position).where(Position.id == posId).values(note=note.toPlainText())
+            session.execute(exp)
+            session.commit()
 
     def sortResults(self, label_obj):
         sort_field = [obj.attribute for obj in tradelist_fields if obj.header_value == label_obj.text().lower()][0]
@@ -179,6 +233,10 @@ class JournalApp(QMainWindow):
                 field.modifier(widget) if getattr(field, "modifier") else None
                 isinstance(widget, QLabel) and widget.setAlignment(Qt.AlignmentFlag.AlignHCenter)
                 layout.addWidget(widget, row_n, col_n)
+
+                if field.attribute == "note":
+                    widget.id = position.id
+                    widget.installEventFilter(self)
 
         self.drawPageSelection(layout)
 
