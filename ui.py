@@ -89,6 +89,8 @@ tradelist_fields: List[Field] = [
     ),
     Field(
         attribute="side",
+        value= lambda position: "long" if position.side == "Buy" else "short",
+        class_="side",
         header_value="side"
     ),
     Field(
@@ -188,6 +190,26 @@ class JournalApp(QMainWindow):
             header_column.installEventFilter(self)
             layout.addWidget(header_column, 1, col_num)
 
+    def drawTradeListBody(self, layout):
+        currentPageRecords = self._records[self.currentPage*PAGE_SIZE:self.currentPage*PAGE_SIZE+PAGE_SIZE]
+        
+        for row_n, position in enumerate(currentPageRecords, start=2):
+            for col_n, field in enumerate(tradelist_fields):
+                value = field.value(position) if getattr(field, "value") else str(getattr(position, field.attribute))
+                css_class = f"tradelist-field {field.class_} {'even' if not row_n % 2 else 'odd'}"
+                widget = field.widget(value)
+                widget.setProperty("class", css_class)
+                field.modifier(widget) if getattr(field, "modifier") else None
+                isinstance(widget, QLabel) and widget.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                layout.addWidget(widget, row_n, col_n)
+
+                if field.attribute == "note":
+                    widget.id = position.id
+                    widget.installEventFilter(self)
+
+                if field.attribute == "ticker":
+                    widget.clicked.connect(partial(self.drawOperationListUI, position))
+
     def eventFilter(self, a0: 'QObject', a1: 'QEvent') -> bool:
         if a1.type() == QMouseEvent.Type.MouseButtonPress and a1.button() == Qt.MouseButton.LeftButton:
             if "note" in a0.property("class"):
@@ -208,39 +230,43 @@ class JournalApp(QMainWindow):
             exp = update(Position).where(Position.id == posId).values(note=note.toPlainText())
             session.execute(exp)
             session.commit()
+        self.drawTradeListBody(self.tradeListLayout)
 
     def sortResults(self, label_obj):
         sort_field = [obj.attribute for obj in tradelist_fields if obj.header_value == label_obj.text().lower()][0]
-        self._records = Position.get_positions(self._engine, sorting_field=sort_field)
-        self.initTradeListUI()
+        sort_order = getattr(label_obj, "sort_order", None)
+        label_obj.sort_order = 0 if sort_order is None or sort_order == 1 else 1
+        self._records = Position.get_positions(self._engine, sorting_field=sort_field, sorting_order=label_obj.sort_order)
+        self.drawTradeListBody(self.tradeListLayout)
 
     def initTradeListUI(self):
         central = QWidget(self)
-        layout = QGridLayout()
-        layout.setSpacing(0)
-        central.setLayout(layout)
+        self.tradeListLayout = QGridLayout()
+        self.tradeListLayout.setSpacing(0)
+        central.setLayout(self.tradeListLayout)
 
-        self.drawTradeListHeader(layout)
+        self.drawTradeListHeader(self.tradeListLayout)
 
-        currentPageRecords = self._records[self.currentPage*PAGE_SIZE:self.currentPage*PAGE_SIZE+PAGE_SIZE]
-        
-        for row_n, position in enumerate(currentPageRecords, start=2):
-            for col_n, field in enumerate(tradelist_fields):
-                value = field.value(position) if getattr(field, "value") else str(getattr(position, field.attribute))
-                css_class = f"tradelist-field {field.class_} {'even' if not row_n % 2 else ''}"
-                widget = field.widget(value)
-                widget.setProperty("class", css_class)
-                field.modifier(widget) if getattr(field, "modifier") else None
-                isinstance(widget, QLabel) and widget.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-                layout.addWidget(widget, row_n, col_n)
+        self.drawTradeListBody(self.tradeListLayout)
 
-                if field.attribute == "note":
-                    widget.id = position.id
-                    widget.installEventFilter(self)
+        self.drawPageSelection(self.tradeListLayout)
 
-        self.drawPageSelection(layout)
+        self.drawTotalStats(self.tradeListLayout)
 
         self.setCentralWidget(central)
+
+    def drawOperationListUI(self, position):
+        operations = position.operations
+        widget = QWidget()
+        layout = QGridLayout()
+        self.setCentralWidget(widget)
+        self.centralWidget().setLayout(layout)
+        btn = QPushButton("return")
+        btn.clicked.connect(self.initTradeListUI)
+        layout.addWidget(btn, 0, 0)
+        for n, operation in enumerate(operations, start=1):
+            layout.addWidget(QLabel(str(operation)), n, 0)
+        
 
     def drawPageSelection(self, layout):
         number_of_pages = math.ceil(len(self._records)/PAGE_SIZE)
@@ -254,6 +280,18 @@ class JournalApp(QMainWindow):
             button.clicked.connect(partial(self.changePage, page))
             page_selection_layout.addWidget(button)
         layout.addWidget(page_selection_widget, PAGE_SIZE+2, 0, 1, len(tradelist_fields), alignment=Qt.AlignmentFlag.AlignRight)
+
+    def drawTotalStats(self, layout):
+        total_widget = QWidget()
+        total_widget.setProperty("class", "total")
+        total_layout = QHBoxLayout()
+        total_trades = len(self._records)
+        succesful_trades = sum([1 for trade in self._records if trade.closed and trade.result > 0])
+        total_widget.setLayout(total_layout)
+        total_layout.addWidget(QLabel(f"total: {total_trades} trades (w: {succesful_trades} / l: {total_trades-succesful_trades})"))
+        total_layout.addWidget(QLabel(f"successful trades: {round(succesful_trades/total_trades*100, 2)} %"))
+        total_layout.addWidget(QLabel(f"R {round(sum([trade.result for trade in self._records if trade.closed]), 2)} (return rub)"))
+        layout.addWidget(total_widget, PAGE_SIZE+3, 0, 1, len(tradelist_fields), alignment=Qt.AlignmentFlag.AlignJustify)
 
     def changePage(self, page):
         self.currentPage = page - 1
