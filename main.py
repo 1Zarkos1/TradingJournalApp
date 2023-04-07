@@ -57,6 +57,7 @@ def get_account_operations(
     ) -> List[Sdk_Operation]:
     operations = []
     from_date = from_date or account["open_date"]
+    from_date = from_date.replace(tzinfo=timezone.utc)
     to_date = to_date or datetime.now(timezone.utc)
     if batch_interval:
         batch_end_date = from_date + timedelta(days=batch_interval)
@@ -90,9 +91,13 @@ def record_operations(operations_response: List[Sdk_Operation], engine, client) 
         Asset.populate_assets(client, engine)
     tickers = Asset.get_figi_to_ticker_mapping(engine)
     with Session(engine) as session:
+        last_trade = session.scalar(select(Operation).order_by(Operation.time.desc()))
+        last_trade_id = getattr(last_trade, "id", 0)
         for operation in operations_response:
             # process only executed operations
             if operation.state == EXECUTED_OPERATION:
+                if operation.id == last_trade_id:
+                    continue
 
                 operation.operation_type = OPERATION_TYPES.get(operation.operation_type)
                 operation.ticker = tickers.get(operation.figi)
