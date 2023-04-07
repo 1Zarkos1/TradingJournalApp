@@ -7,7 +7,7 @@ from typing import List
 from sqlalchemy import create_engine, ForeignKey, Engine, select, inspect, event, and_
 from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column, relationship, column_property
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.sql import case
+from sqlalchemy.sql import case, functions
 from tinkoff.invest import Client, schemas
 
 from utils import extract_money_amount
@@ -198,10 +198,17 @@ class Position(Base):
             .order_by(Operation.time.desc()).limit(1)
             .scalar_subquery()
         )
-
-    @property
+        
+    @hybrid_property
     def size(self) -> int:
         return self.get_operations_quantity(self.side)
+    
+    @size.expression
+    def size(cls):
+        return (
+            select(functions.sum(Operation.quantity))
+            .where((Operation.position_id == cls.id) & (Operation.side == cls.side))
+        ).scalar_subquery()
     
     def get_operations_quantity(self, side: str) -> int:
         return sum(
@@ -227,13 +234,18 @@ class Position(Base):
         return position
 
     @classmethod
-    def get_positions(cls, engine, filter_field="", filter_value="", sorting_field=""):
+    def get_positions(cls, engine, filter_field="", filter_value="", sorting_field="", sorting_order: int = 0):
         with Session(engine) as session:
             query = select(Position)
+            sorting_field = getattr(cls, sorting_field, None)
             if filter_field and filter_value:
                 query = query.where(getattr(cls, filter_field) > filter_value)
-            if sorting_field:
-                query = query.order_by(getattr(cls, sorting_field))
+            try:
+                if sorting_field:
+                    sorting_field = sorting_field.desc if sorting_order else sorting_field.asc
+                    query = query.order_by(sorting_field())
+            except Exception as e:
+                pass
             return session.scalars(query).all()
 
     def update(self, operation: Operation, payment: float) -> None:
@@ -242,16 +254,18 @@ class Position(Base):
         new_operation_price_fraction = operation.price * (operation.quantity / same_side_position_quantity)
         existing_quantity_to_total_ratio = (same_side_position_quantity - operation.quantity) / same_side_position_quantity
         if self.side == operation.side:
-            self.open_price = (
+            self.open_price = round(
                 self.open_price 
                 * existing_quantity_to_total_ratio 
-                + new_operation_price_fraction
+                + new_operation_price_fraction,
+                2
             )
         else:
-            self.closing_price = (
+            self.closing_price = round(
                 self.closing_price 
                 * existing_quantity_to_total_ratio 
-                + new_operation_price_fraction
+                + new_operation_price_fraction,
+                2
             )
 
             opposite_side_position_quantity = self.get_operations_quantity(
