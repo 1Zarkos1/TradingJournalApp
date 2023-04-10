@@ -171,30 +171,25 @@ class JournalApp(QMainWindow):
         self._engine = get_engine(account_name)
         initialize_db(self._engine, self._engine.url.database)
         self._records = Position.get_positions(self._engine)
-        self.wordList = set([pos.ticker for pos in self._records])
+        self.tickersTraded = set([pos.ticker for pos in self._records])
         self.initTradeListUI()
  
     def initTradeListUI(self):
         central = QWidget(self)
-        self.tradeListLayout = QGridLayout()
-        self.tradeListLayout.setSpacing(0)
+        self.tradeListLayout = QVBoxLayout()
         central.setLayout(self.tradeListLayout)
 
-        self.drawTradeListHeader(self.tradeListLayout)
-
-        self.drawTradeListBody(self.tradeListLayout)
-
-        self.drawPageSelection(self.tradeListLayout)
-
-        self.drawTotalStats(self.tradeListLayout)
-
+        self.drawTopMenuButtons()
         self.drawFilterField()
+        self.drawTradeListTable()
+        self.drawPageSelection()
+        self.drawTotalStats()
 
         self.setCentralWidget(central)
 
     ### UI Draw Methods ###
 
-    def drawTopMenuButtons(self, layout) -> None:
+    def drawTopMenuButtons(self) -> None:
         widget = QWidget()
         buttonsLayout = QHBoxLayout()
         widget.setLayout(buttonsLayout)
@@ -204,24 +199,40 @@ class JournalApp(QMainWindow):
         syncTrades.clicked.connect(self.updateTrades)
         buttonsLayout.addWidget(accountChange)
         buttonsLayout.addWidget(syncTrades)
-        layout.addWidget(widget, 0, 0, 1, len(tradelist_fields))
+        self.tradeListLayout.addWidget(widget)
 
-    def drawTradeListHeader(self, layout: QGridLayout) -> None:
-        self.drawTopMenuButtons(layout)
+    def drawTradeListTable(self, update=False):
+        if update:
+            currentTableWidget = self.tradeListTableWidget
+        self.tradeListTableWidget = QWidget()
+        layout = QGridLayout()
+        layout.setSpacing(0)
+        self.tradeListTableWidget.setLayout(layout)
+
+        self.drawTradeListTableHeader(layout)
+        self.drawTradeListTableBody(layout)
+
+        if update:
+            self.tradeListLayout.replaceWidget(currentTableWidget, self.tradeListTableWidget)
+            self.tradeListLayout.removeWidget(currentTableWidget)
+        else:
+            self.tradeListLayout.addWidget(self.tradeListTableWidget)
+
+    def drawTradeListTableHeader(self, layout) -> None:
         header_column = QCheckBox()
         header_column.stateChanged.connect(self.toggleSelectedPositions)
-        layout.addWidget(header_column, 1, 0)
+        layout.addWidget(header_column, 0, 0)
         for col_num, field in enumerate(tradelist_fields[1:], start=1):
             header_column = QLabel(field.header_value.upper())
             header_column.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             header_column.setProperty("class", "header-label")
             header_column.installEventFilter(self)
-            layout.addWidget(header_column, 1, col_num)
+            layout.addWidget(header_column, 0, col_num)
 
-    def drawTradeListBody(self, layout):
+    def drawTradeListTableBody(self, layout):
         currentPageRecords = self._records[self.currentPage*PAGE_SIZE:self.currentPage*PAGE_SIZE+PAGE_SIZE]
         
-        for row_n, position in enumerate(currentPageRecords, start=2):
+        for row_n, position in enumerate(currentPageRecords, start=1):
             for col_n, field in enumerate(tradelist_fields):
                 value = field.value(position) if getattr(field, "value") else str(getattr(position, field.attribute))
                 css_class = f"tradelist-field {field.class_} {'even' if not row_n % 2 else 'odd'}"
@@ -243,33 +254,43 @@ class JournalApp(QMainWindow):
                         widget.setChecked(True)
                     widget.stateChanged.connect(partial(self.selectPositions, position))
 
-    def drawPageSelection(self, layout):
+    def drawPageSelection(self, update=False):
+        if update:
+            currentPageSelection = self.pageSelectionWidget
         number_of_pages = math.ceil(len(self._records)/PAGE_SIZE)
-        page_selection_widget = QWidget()
-        page_selection_layout = QHBoxLayout()
-        page_selection_widget.setLayout(page_selection_layout)
+        self.pageSelectionWidget = QWidget()
+        layout = QHBoxLayout()
+        self.pageSelectionWidget.setLayout(layout)
         for page in range(1, number_of_pages+1):
-            button = QPushButton(str(page), page_selection_widget)
+            button = QPushButton(str(page), self.pageSelectionWidget)
             if page-1 == self.currentPage:
                 button.setProperty("class", "current-page")
             button.clicked.connect(partial(self.changePage, page))
-            page_selection_layout.addWidget(button)
-        layout.addWidget(page_selection_widget, PAGE_SIZE+2, 0, 1, len(tradelist_fields), alignment=Qt.AlignmentFlag.AlignRight)
+            layout.addWidget(button)
+        if update:
+            self.tradeListLayout.replaceWidget(currentPageSelection, self.pageSelectionWidget)
+            self.tradeListLayout.removeWidget(currentPageSelection)
+        else:
+            self.tradeListLayout.addWidget(self.pageSelectionWidget, alignment=Qt.AlignmentFlag.AlignRight)
 
-    def drawTotalStats(self, layout, delete=False):
-        if delete:
-            self.tradeListLayout.removeWidget(self.total_widget)
+    def drawTotalStats(self, update=False):
+        if update:
+            currentStats = self.totalStatsWidget
         positions = self.selectedPositions or self._records
-        self.total_widget = QWidget()
-        self.total_widget.setProperty("class", "total")
-        total_layout = QHBoxLayout()
+        self.totalStatsWidget = QWidget()
+        self.totalStatsWidget.setProperty("class", "total")
+        layout = QHBoxLayout()
+        self.totalStatsWidget.setLayout(layout)
         total_trades = len(positions)
         succesful_trades = sum([1 for trade in positions if trade.closed and trade.result > 0])
-        self.total_widget.setLayout(total_layout)
-        total_layout.addWidget(QLabel(f"total: {total_trades} trades (w: {succesful_trades} / l: {total_trades-succesful_trades})"))
-        total_layout.addWidget(QLabel(f"successful trades: {round(succesful_trades/total_trades*100, 2)} %"))
-        total_layout.addWidget(QLabel(f"R {round(sum([trade.result for trade in positions if trade.closed]), 2)} (return rub)"))
-        layout.addWidget(self.total_widget, PAGE_SIZE+3, 0, 1, len(tradelist_fields), alignment=Qt.AlignmentFlag.AlignJustify)
+        layout.addWidget(QLabel(f"total: {total_trades} trades (w: {succesful_trades} / l: {total_trades-succesful_trades})"))
+        layout.addWidget(QLabel(f"successful trades: {round(succesful_trades/total_trades*100, 2)} %"))
+        layout.addWidget(QLabel(f"R {round(sum([trade.result for trade in positions if trade.closed]), 2)} (return rub)"))
+        if update:
+            self.tradeListLayout.replaceWidget(currentStats, self.totalStatsWidget)
+            self.tradeListLayout.removeWidget(currentStats)
+        else:
+            self.tradeListLayout.addWidget(self.totalStatsWidget, alignment=Qt.AlignmentFlag.AlignJustify)
     
     def drawOperationListUI(self, position):
         operations = position.operations
@@ -283,48 +304,53 @@ class JournalApp(QMainWindow):
         for n, operation in enumerate(operations, start=1):
             layout.addWidget(QLabel(str(operation)), n, 0)
 
-    def drawFilterField(self):
+    def drawFilterField(self, update=False):
+        if update:
+            currentFilter = self.filterWidget
 
-        filter_widget = QWidget()
-        filter_widget.setProperty("class", "filter-container")
-        filter_layout = QHBoxLayout()
-        filter_widget.setLayout(filter_layout)
+        self.filterWidget = QWidget()
+        self.filterWidget.setProperty("class", "filter-container")
+        layout = QHBoxLayout()
+        self.filterWidget.setLayout(layout)
 
         filter_line = QLineEdit()
         filter_line.setPlaceholderText("Symbol")
-        completer = QCompleter(self.wordList)
+        completer = QCompleter(self.tickersTraded)
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         filter_line.setCompleter(completer)
         filter_line.returnPressed.connect(lambda filter_line=filter_line: self.filterPositions("ticker", filter_line.text()))
         completer.activated.connect(lambda filter_line: self.filterPositions("ticker", filter_line))
-        filter_layout.addWidget(filter_line)
+        layout.addWidget(filter_line)
 
         side = QComboBox()
         side.addItems(["all", "short", "long"])
         side.currentTextChanged.connect(lambda filter_value: self.filterPositions("side", filter_value))
-        filter_layout.addWidget(side)
+        layout.addWidget(side)
 
         status = QComboBox()
         status.addItems(["all", "win", "loss"])
         status.currentTextChanged.connect(lambda filter_value: self.filterPositions("status", filter_value))
-        filter_layout.addWidget(status)
+        layout.addWidget(status)
 
         from_date = QDateTimeEdit()
         from_date.dateTimeChanged.connect(lambda qdate: self.filterPositions("from_date", qdate.toPyDateTime()))
         from_date.setCalendarPopup(True)
-        filter_layout.addWidget(from_date)
+        layout.addWidget(from_date)
 
         to_date = QDateTimeEdit()
+        to_date.setDateTime(datetime.now())
         to_date.dateTimeChanged.connect(lambda qdate: self.filterPositions("to_date", qdate.toPyDateTime()))
         to_date.setCalendarPopup(True)
-        to_date.setDateTime(datetime.now())
-        filter_layout.addWidget(to_date)
+        layout.addWidget(to_date)
 
         clear_button = QPushButton("clear filters")
         clear_button.clicked.connect(self.resetFilters)
-        filter_layout.addWidget(clear_button)
+        layout.addWidget(clear_button)
 
-        self.tradeListLayout.addWidget(filter_widget, PAGE_SIZE+4, 0, 1, len(tradelist_fields), alignment=Qt.AlignmentFlag.AlignHCenter)
+        if update:
+            self.tradeListLayout.replaceWidget(currentFilter, self.filterWidget)
+        else:
+            self.tradeListLayout.addWidget(self.filterWidget, alignment=Qt.AlignmentFlag.AlignHCenter)
 
     def drawNoteSubWindow(self, obj):
         self.subwindow = NoteSubWindow(parent=self, obj=obj)
@@ -378,9 +404,9 @@ class JournalApp(QMainWindow):
 
     def filterPositions(self, filter_field, filter_value):
         self._records = Position.get_positions(self._engine, filter_field, filter_value)
-        self.drawTradeListBody(self.tradeListLayout)
-        self.drawPageSelection(self.tradeListLayout)
-        self.drawTotalStats(self.tradeListLayout)
+        self.drawTradeListTable(update=True)
+        self.drawPageSelection(update=True)
+        self.drawTotalStats(update=True)
 
     def updateTrades(self):
         with Session(self._engine) as session:
@@ -402,8 +428,8 @@ class Test(QMainWindow):
     def initUI(self):
         central = QLineEdit()
         central.returnPressed.connect(lambda central=central: print(central.text()))
-        wordList = ["alpha", "omega", "omicron", "zeta"]
-        completer = QCompleter(wordList)
+        tickersTraded = ["alpha", "omega", "omicron", "zeta"]
+        completer = QCompleter(tickersTraded)
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         central.setCompleter(completer)
         completer.activated.connect(lambda *args: print(args))
