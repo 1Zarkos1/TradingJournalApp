@@ -19,7 +19,9 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QMdiSubWindow,
     QPlainTextEdit,
-    QCompleter
+    QCompleter,
+    QComboBox,
+    QDateTimeEdit
 )
 from PyQt6.QtCore import QSize, QtMsgType, Qt, QEvent, QObject
 from PyQt6.QtGui import QFont, QCursor, QMouseEvent, QIcon, QImage, QPixmap
@@ -66,7 +68,7 @@ tradelist_fields: List[Field] = [
     ),
     Field(
         attribute="open_date",
-        value=lambda pos: pos.open_date.strftime("%b %d, %Y"),
+        value=lambda pos: pos.open_date.strftime("%b %d, %Y").upper(),
         header_value="date"
     ),
     Field(
@@ -282,13 +284,47 @@ class JournalApp(QMainWindow):
             layout.addWidget(QLabel(str(operation)), n, 0)
 
     def drawFilterField(self):
+
+        filter_widget = QWidget()
+        filter_widget.setProperty("class", "filter-container")
+        filter_layout = QHBoxLayout()
+        filter_widget.setLayout(filter_layout)
+
         filter_line = QLineEdit()
+        filter_line.setPlaceholderText("Symbol")
         completer = QCompleter(self.wordList)
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         filter_line.setCompleter(completer)
-        filter_line.returnPressed.connect(lambda filter_line=filter_line: self.filterPositions(filter_line.text()))
-        completer.activated.connect(self.filterPositions)
-        self.tradeListLayout.addWidget(filter_line, PAGE_SIZE+4, 0)
+        filter_line.returnPressed.connect(lambda filter_line=filter_line: self.filterPositions("ticker", filter_line.text()))
+        completer.activated.connect(lambda filter_line: self.filterPositions("ticker", filter_line))
+        filter_layout.addWidget(filter_line)
+
+        side = QComboBox()
+        side.addItems(["all", "short", "long"])
+        side.currentTextChanged.connect(lambda filter_value: self.filterPositions("side", filter_value))
+        filter_layout.addWidget(side)
+
+        status = QComboBox()
+        status.addItems(["all", "win", "loss"])
+        status.currentTextChanged.connect(lambda filter_value: self.filterPositions("status", filter_value))
+        filter_layout.addWidget(status)
+
+        from_date = QDateTimeEdit()
+        from_date.dateTimeChanged.connect(lambda qdate: self.filterPositions("from_date", qdate.toPyDateTime()))
+        from_date.setCalendarPopup(True)
+        filter_layout.addWidget(from_date)
+
+        to_date = QDateTimeEdit()
+        to_date.dateTimeChanged.connect(lambda qdate: self.filterPositions("to_date", qdate.toPyDateTime()))
+        to_date.setCalendarPopup(True)
+        to_date.setDateTime(datetime.now())
+        filter_layout.addWidget(to_date)
+
+        clear_button = QPushButton("clear filters")
+        clear_button.clicked.connect(self.resetFilters)
+        filter_layout.addWidget(clear_button)
+
+        self.tradeListLayout.addWidget(filter_widget, PAGE_SIZE+4, 0, 1, len(tradelist_fields), alignment=Qt.AlignmentFlag.AlignHCenter)
 
     def drawNoteSubWindow(self, obj):
         self.subwindow = NoteSubWindow(parent=self, obj=obj)
@@ -340,15 +376,11 @@ class JournalApp(QMainWindow):
         self.currentPage = page - 1
         self.initTradeListUI()
 
-    def apply_filter(self, button: QPushButton):
-        print(button.text())
-
-    def process_filter(self):
-        filter_text = self.filter_field.text()
-        f_field = filter_text.split(":")[0]
-        filter_value = filter_text.split(":")[1].strip()
-        if f_field in ["open_date", "close_date"]:
-            filter_value = datetime.strptime(filter_value, "%m/%d/%Y")
+    def filterPositions(self, filter_field, filter_value):
+        self._records = Position.get_positions(self._engine, filter_field, filter_value)
+        self.drawTradeListBody(self.tradeListLayout)
+        self.drawPageSelection(self.tradeListLayout)
+        self.drawTotalStats(self.tradeListLayout)
 
     def updateTrades(self):
         with Session(self._engine) as session:
@@ -358,9 +390,24 @@ class JournalApp(QMainWindow):
         self._records = Position.get_positions(self._engine)
         self.initTradeListUI()
 
-    def filterPositions(self, ticker):
-        self._records = Position.get_positions(self._engine, "ticker", ticker)
+    def resetFilters(self):
+        self._records = Position.get_positions(self._engine)
         self.initTradeListUI()
+
+class Test(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.initUI()
+
+    def initUI(self):
+        central = QLineEdit()
+        central.returnPressed.connect(lambda central=central: print(central.text()))
+        wordList = ["alpha", "omega", "omicron", "zeta"]
+        completer = QCompleter(wordList)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        central.setCompleter(completer)
+        completer.activated.connect(lambda *args: print(args))
+        self.setCentralWidget(central)   
 
 
 app = QApplication(sys.argv)

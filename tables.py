@@ -239,7 +239,22 @@ class Position(Base):
             query = select(Position)
             sorting_field = getattr(cls, sorting_field, None)
             if filter_field and filter_value:
-                query = query.where(getattr(cls, filter_field) > filter_value)
+                match filter_field:
+                    case "ticker":
+                        query = query.where(getattr(cls, filter_field).ilike(filter_value))
+                    case "from_date":
+                        query = query.where(getattr(cls, "open_date") > filter_value)
+                        print(query)
+                    case "to_date":
+                        query = query.where(getattr(cls, "open_date") < filter_value)
+                    case "side":
+                        if filter_value != "all":
+                            value = "Buy" if filter_value == "long" else "Sell"
+                            query = query.where(getattr(cls, "side") == value)
+                    case "status":
+                        if filter_value != "all":
+                            value = Position.result > 0 if filter_value == "win" else Position.result < 0
+                            query = query.where(Position.closed.is_(True) & value)
             try:
                 if sorting_field:
                     sorting_field = sorting_field.desc if sorting_order else sorting_field.asc
