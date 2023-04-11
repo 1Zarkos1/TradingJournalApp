@@ -234,11 +234,11 @@ class Position(Base):
         return position
 
     @classmethod
-    def get_positions(cls, engine, filter_field="", filter_value="", sorting_field="", sorting_order: int = 0):
+    def get_positions(cls, engine, filters={}, sorting_field="", sorting_order: int = 0):
         with Session(engine) as session:
             query = select(Position)
             sorting_field = getattr(cls, sorting_field, None)
-            if filter_field and filter_value:
+            for filter_field, filter_value in filters.items():
                 match filter_field:
                     case "ticker":
                         query = query.where(getattr(cls, filter_field).ilike(filter_value))

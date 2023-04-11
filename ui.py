@@ -412,7 +412,8 @@ class JournalApp(QMainWindow):
         self.updateUIForRecords()
 
     def filterPositions(self, filter_field, filter_value):
-        self._records = Position.get_positions(self._engine, filter_field, filter_value)
+        self.activeFilters[filter_field] = filter_value
+        self._records = Position.get_positions(self._engine, filters=self.activeFilters)
         self.updateUIForRecords()
 
     def updateTrades(self):
@@ -424,6 +425,7 @@ class JournalApp(QMainWindow):
         self.updateUIForRecords()
 
     def resetFilters(self):
+        self.activeFilters = {}
         self._records = Position.get_positions(self._engine)
         self.initTradeListUI()
 
