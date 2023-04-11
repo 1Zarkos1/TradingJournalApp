@@ -28,6 +28,7 @@ from PyQt6.QtGui import QFont, QCursor, QMouseEvent, QIcon, QImage, QPixmap
 from sqlalchemy import select
 from sqlalchemy.sql.expression import update
 from sqlalchemy.orm import Session
+import pyqtgraph as pg
 
 from main import get_available_accounts, API_TOKEN, ACCOUNT_NAME, PAGE_SIZE, Client, synchronize_operations
 from tables import Asset, Position, Operation, AdditionalPayment, get_engine, initialize_db
@@ -192,16 +193,16 @@ class JournalApp(QMainWindow):
         self.setCentralWidget(central)
 
     def drawTopMenuButtons(self) -> None:
-        widget = QWidget()
+        self.topMenuButtonsWidget = QWidget()
         buttonsLayout = QHBoxLayout()
-        widget.setLayout(buttonsLayout)
+        self.topMenuButtonsWidget.setLayout(buttonsLayout)
         accountChange = QPushButton("Change account")
         accountChange.clicked.connect(self.initAccountSelectionUI)
         syncTrades = QPushButton("Sync trades")
         syncTrades.clicked.connect(self.updateTrades)
         buttonsLayout.addWidget(accountChange)
         buttonsLayout.addWidget(syncTrades)
-        self.tradeListLayout.addWidget(widget)
+        self.tradeListLayout.addWidget(self.topMenuButtonsWidget)
 
     def drawTradeListTable(self, update=False):
         if update:
@@ -284,6 +285,7 @@ class JournalApp(QMainWindow):
         positions = self.selectedPositions or self._records
         self.totalStatsWidget = QWidget()
         self.totalStatsWidget.setProperty("class", "total")
+        self.totalStatsWidget.installEventFilter(self)
         layout = QHBoxLayout()
         self.totalStatsWidget.setLayout(layout)
         total_trades = len(positions)
@@ -363,6 +365,18 @@ class JournalApp(QMainWindow):
         self.drawPageSelection(update=True)
         self.drawTotalStats(update=True)
     
+    def drawTotalStatsPage(self):
+        mainLayout = self.centralWidget().layout()
+        graph = pg.PlotWidget(axisItems={'bottom': pg.DateAxisItem()})
+        time = [pos.open_date.timestamp() for pos in self._records]
+        result = [pos.result for pos in self._records]
+        btn = QPushButton("return")
+        btn.clicked.connect(self.initTradeListUI)
+        mainLayout.addWidget(btn)
+        self.tradeListLayout.addWidget(graph)
+        graph.plot(time, result)
+        self.setCentralWidget(QWidget())
+    
     def drawNoteSubWindow(self, obj):
         self.subwindow = NoteSubWindow(parent=self, obj=obj)
         self.subwindow.show()
@@ -389,7 +403,10 @@ class JournalApp(QMainWindow):
         if a1.type() == QMouseEvent.Type.MouseButtonPress and a1.button() == Qt.MouseButton.LeftButton:
             if "note" in a0.property("class"):
                 self.drawNoteSubWindow(a0)
+            elif "total" in a0.property("class"):
+                self.switchToTotalStatsPage()
             else:
+                w = self.tradeListTableWidget # keep reference to the old table before redrawing otherwise super() raises C++ error
                 self.sortResults(a0)
         return super().eventFilter(a0, a1)
 
@@ -404,8 +421,8 @@ class JournalApp(QMainWindow):
         sort_field = [obj.attribute for obj in tradelist_fields if obj.header_value == label_obj.text().lower()][0]
         sort_order = getattr(label_obj, "sort_order", None)
         label_obj.sort_order = 0 if sort_order is None or sort_order == 1 else 1
-        self._records = Position.get_positions(self._engine, sorting_field=sort_field, sorting_order=label_obj.sort_order)
-        self.drawTradeListTable(update=True)
+        self._records = Position.get_positions(self._engine, filters=self.activeFilters, sorting_field=sort_field, sorting_order=label_obj.sort_order)
+        self.updateUIForRecords()
 
     def changePage(self, page):
         self.currentPage = page - 1
