@@ -255,7 +255,7 @@ class JournalApp(QMainWindow):
                     widget.installEventFilter(self)
 
                 if field.attribute == "ticker":
-                    widget.clicked.connect(partial(self.drawOperationListUI, position))
+                    widget.clicked.connect(partial(self.drawIndividualPositionUI, position))
 
                 if field.attribute == "chb":
                     if position in self.selectedPositions:
@@ -351,17 +351,74 @@ class JournalApp(QMainWindow):
         else:
             self.tradeListLayout.addWidget(self.filterWidget, alignment=Qt.AlignmentFlag.AlignHCenter)
  
-    def drawOperationListUI(self, position):
+    def drawIndividualPositionUI(self, position):
         operations = position.operations
         widget = QWidget()
-        layout = QGridLayout()
+        layout = QVBoxLayout()
+        widget.setLayout(layout)
         self.setCentralWidget(widget)
-        self.centralWidget().setLayout(layout)
+
         btn = QPushButton("return")
         btn.clicked.connect(self.initTradeListUI)
-        layout.addWidget(btn, 0, 0)
-        for n, operation in enumerate(operations, start=1):
-            layout.addWidget(QLabel(str(operation)), n, 0)
+        layout.addWidget(btn)
+
+        # draw chart
+        # draw trade summary info
+        tradeSummarySection = QWidget()
+        tsLayout = QGridLayout()
+        tsLayout.setSpacing(0)
+        tradeSummarySection.setLayout(tsLayout)
+        for col_num, field in enumerate(tradelist_fields[1:-1], start=0):
+            header_column = QLabel(field.header_value.upper())
+            header_column.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            header_column.setProperty("class", "header-label")
+            header_column.installEventFilter(self)
+            tsLayout.addWidget(header_column, 0, col_num)
+        for col_n, field in enumerate(tradelist_fields[1:-1]):
+            value = field.value(position) if getattr(field, "value") else str(getattr(position, field.attribute))
+            css_class = f"tradelist-field {field.class_}"
+            dataValue = field.widget(value)
+            dataValue.setProperty("class", css_class)
+            field.modifier(dataValue) if getattr(field, "modifier") else None
+            isinstance(dataValue, QLabel) and dataValue.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            tsLayout.addWidget(dataValue, 1, col_n)
+        layout.addWidget(tradeSummarySection)
+        # draw executions summary
+        operationsSummarySection = QWidget()
+        osLayout = QGridLayout()
+        osLayout.setSpacing(0)
+        operationsSummarySection.setLayout(osLayout)
+        for col_n, field in enumerate(operations[0].to_dict()):
+            header_column = QLabel(field.upper())
+            header_column.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            header_column.setProperty("class", "header-label")
+            osLayout.addWidget(header_column, 0, col_n)
+        for row_n, operation in enumerate(operations, start=1):
+            for col_n, value in enumerate(operation.to_dict().values()):
+                css_class = f"tradelist-field"
+                w = QLabel(str(value))
+                w.setProperty("class", css_class)
+                w.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                osLayout.addWidget(w, row_n, col_n)
+        layout.addWidget(operationsSummarySection)
+        # draw notes section
+        noteSection = QWidget()
+        nLayout = QVBoxLayout()
+        noteSection.setLayout(nLayout)
+        noteHeader = QLabel("notes".upper())
+        noteHeader.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        noteHeader.setProperty("class", "header-label")
+        noteValue = QLabel(position.note)
+        noteValue.setProperty("class", "tradelist-field")
+        nLayout.addWidget(noteHeader)
+        nLayout.addWidget(noteValue)
+        # addButton = QPushButton("Add note")  
+        # delButton = QPushButton("Delete note")
+        # nLayout.addWidget(addButton)
+        # nLayout.addWidget(delButton)
+        layout.addWidget(noteSection)
+
+        layout.addStretch()
     
     def updateUIForRecords(self):
         self.drawTradeListTable(update=True)

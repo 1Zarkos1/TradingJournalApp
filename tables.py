@@ -156,6 +156,16 @@ class Operation(Base):
         self.position.fee += fee
         session.add(self)
     
+    def to_dict(self):
+        return {
+            "side": self.side,
+            "date": self.time.strftime("%d/%m/%Y"),
+            "time": self.time.strftime("%H:%M:%S"),
+            "quantity": self.quantity,
+            "price": self.price,
+            "fee": self.fee
+        }
+
     def __repr__(self) -> str:
         return f"Operation<ticker={self.ticker}, side={self.side}, time={self.time}, quantity={self.quantity}, price={self.price}>"
 
