@@ -32,6 +32,7 @@ import pyqtgraph as pg
 
 from main import get_available_accounts, API_TOKEN, ACCOUNT_NAME, PAGE_SIZE, Client, synchronize_operations
 from tables import Asset, Position, Operation, AdditionalPayment, get_engine, initialize_db
+from utils import get_positions_stats, get_positions_stats
 
 @dataclass
 class Field:
@@ -169,6 +170,7 @@ class JournalApp(QMainWindow):
         self.setWindowTitle(f"TradingJournal - {account_name}")
         self.account = account_name
         self._token = account_properties.get("token")
+        self._accountOpenDate = account_properties.get("open_date")
         self._engine = get_engine(account_name)
         initialize_db(self._engine, self._engine.url.database)
         self._records = Position.get_positions(self._engine)
@@ -329,6 +331,7 @@ class JournalApp(QMainWindow):
         layout.addWidget(status)
 
         from_date = QDateTimeEdit()
+        from_date.setDateTime(self._accountOpenDate)
         from_date.dateTimeChanged.connect(lambda qdate: self.filterPositions("from_date", qdate.toPyDateTime()))
         from_date.setCalendarPopup(True)
         layout.addWidget(from_date)
@@ -366,16 +369,35 @@ class JournalApp(QMainWindow):
         self.drawTotalStats(update=True)
     
     def drawTotalStatsPage(self):
-        mainLayout = self.centralWidget().layout()
-        graph = pg.PlotWidget(axisItems={'bottom': pg.DateAxisItem()})
-        time = [pos.open_date.timestamp() for pos in self._records]
-        result = [pos.result for pos in self._records]
-        btn = QPushButton("return")
+        self.statsPageWidget = QWidget()
+        self.statsPageLayout = QVBoxLayout()
+        self.statsPageWidget.setLayout(self.statsPageLayout)
+        self.statsPageLayout.setSpacing(8)
+        positions = self.selectedPositions or self._records
+        stats = get_positions_stats(positions)
+
+        btn = QPushButton("Return")
         btn.clicked.connect(self.initTradeListUI)
-        mainLayout.addWidget(btn)
-        self.tradeListLayout.addWidget(graph)
-        graph.plot(time, result)
-        self.setCentralWidget(QWidget())
+        self.statsPageLayout.addWidget(btn)
+
+        for section, data in stats.items():
+            section_widget = QWidget()
+            section_widget.setProperty("class", "section")
+            self.statsPageLayout.addWidget(section_widget)
+            section_layout = QGridLayout()
+            section_layout.setSpacing(0)
+            section_widget.setLayout(section_layout)
+            section_header = QLabel(f"Side: {section[0]} - Result: {section[1]}")
+            section_header.setProperty("class", "stats-section-header")
+            section_header.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            section_layout.addWidget(section_header, 0, 0, 1, 2)
+            for n, items in enumerate(data.items(), start=2):
+                label, value = items
+                section_data = QLabel(f"{label.replace('_', ' ').capitalize()}: {str(value)}")
+                section_data.setProperty("class", "stats-section-data")
+                section_layout.addWidget(section_data, n//2, n%2)
+
+        self.setCentralWidget(self.statsPageWidget)
     
     def drawNoteSubWindow(self, obj):
         self.subwindow = NoteSubWindow(parent=self, obj=obj)
@@ -404,7 +426,7 @@ class JournalApp(QMainWindow):
             if "note" in a0.property("class"):
                 self.drawNoteSubWindow(a0)
             elif "total" in a0.property("class"):
-                self.switchToTotalStatsPage()
+                self.drawTotalStatsPage()
             else:
                 w = self.tradeListTableWidget # keep reference to the old table before redrawing otherwise super() raises C++ error
                 self.sortResults(a0)

@@ -150,10 +150,11 @@ class Operation(Base):
         session.add(operation_entry)
         position.update(operation_entry, extract_money_amount(operation.payment))
 
-    def add_fee(self, api_operation):
+    def add_fee(self, api_operation, session):
         fee = extract_money_amount(api_operation.payment)
         self.fee = fee
         self.position.fee += fee
+        session.add(self)
     
     def __repr__(self) -> str:
         return f"Operation<ticker={self.ticker}, side={self.side}, time={self.time}, quantity={self.quantity}, price={self.price}>"
@@ -298,6 +299,22 @@ class Position(Base):
             / self.open_price * 100, 2
         ) if self.closed else 0
     
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "ticker": self.ticker,
+            "side": self.side,
+            "open_price": self.open_price,
+            "closing_price": self.closing_price,
+            "open_date": self.open_date,
+            "close_date": self.close_date,
+            "size": self.size,
+            "currency": self.currency,
+            "fee": self.fee,
+            "closed": self.closed,
+            "result": self.result
+        }
+
     def __repr__(self) -> str:
         return f"Position<id={self.id}, ticker={self.ticker}, open_date={self.open_date}, closed={self.closed}, result={self.result}>"
 

@@ -16,9 +16,23 @@ QLabel {
     color: white;
     padding: 5px;
 }
-
+.ticker-label {
+    color: #00dcff;
+    /* border-style: none; */
+    border: 0px solid;
+    font-weight: bold;
+    background-color: #171b29;
+}
 .even {
     background-color: #182e40;
+}
+.odd {
+    background-color: #171b29;
+}
+.side {
+    border: 1px solid #0ac4b2;
+    padding: 1px;
+    text-transform: uppercase;
 }
 .header-label {
     background-color: #202432;
@@ -33,14 +47,39 @@ QLabel {
     padding: 1px;
     font-weight: bold;
 }
-.ticker-label {
-    color: #00dcff;
-    /* border-style: none; */
-    font-weight: bold;
-}
 .lost {
     background-color: red;
 }
 .current-page {
     background-color: aqua;
+}
+.total {
+    background-color: #2f3341;
+}
+.total QLabel{
+    text-transform: uppercase;
+    font-weight: bold;
+}
+.filter-container {
+    /* background-color: red; */
+}
+.filter-container QWidget {
+    background: transparent;
+    text-transform: uppercase;
+    color: white;
+    border: 1px solid green;
+}
+.section {
+    background-color: #2f3341;
+}
+.stats-section-header {
+    text-transform: uppercase;
+    font-weight: bold;
+    color: white;
+    padding: 1px;
+    margin: 0;
+}
+.stats-section-data {
+    /* background-color: rgb(235, 173, 173); */
+    padding: 0;
 }
