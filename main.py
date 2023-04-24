@@ -138,6 +138,74 @@ def synchronize_operations(client: Client, engine, account_name: str, token: str
         operations_response = get_account_operations(client, selected_account, last_operation_date)
         record_operations(operations_response, engine, client)
 
+def get_walk_away_analysis_data(engine, token, position):
+    close_date = position.close_date.replace(tzinfo=timezone.utc)
+    with Session(engine) as session:
+        figi = session.scalar(select(Asset.figi).where(Asset.ticker == position.ticker))
+    candle_parameters = {
+        "5min": {
+            "candle_range": 2, 
+            "from": timedelta(seconds=0),
+            "to": timedelta(seconds=300)
+        },
+        "1hour": {
+            "candle_range": 2, 
+            "from": (+timedelta(seconds=3600)-timedelta(seconds=300)),
+            "to": timedelta(seconds=3600)
+        },
+        "day": {
+            "candle_range": 5, 
+            "from": -timedelta(days=1),
+            "to": timedelta(0)
+        },
+        "2day": {
+            "candle_range": 5, 
+            "from": timedelta(1),
+            "to": timedelta(2)
+        },
+        "week": {
+            "candle_range": 5, 
+            "from": timedelta(6),
+            "to": timedelta(7)
+        }
+    }
+    with Client(token) as client:
+        for interval, values in candle_parameters.items():
+            candles = client.market_data.get_candles(
+                figi = figi,
+                from_ = close_date + values.get("from"),
+                to = close_date + values.get("to"),
+                interval = values.get("candle_range")
+            ).candles
+            if candles:
+                closing_money_value = candles[-1].close
+                candle_parameters[interval]["price"] = str(extract_money_amount(closing_money_value))
+            else:
+                candle_parameters[interval]["price"] = "Not Found"
+    return candle_parameters
+
+def get_graph_data(engine, token, position):
+    open_date = position.open_date.replace(tzinfo=timezone.utc)
+    close_date = position.close_date.replace(tzinfo=timezone.utc)
+    with Session(engine) as session:
+        figi = session.scalar(select(Asset.figi).where(Asset.ticker == position.ticker))
+    interval = 2
+    from_ = open_date - timedelta(seconds=3600)
+    to = close_date + timedelta(seconds=3600)
+    with Client(token) as client:
+        candles = client.market_data.get_candles(figi=figi, from_=from_, to=to, interval=interval).candles
+    candle_values = []
+    for candle in candles:
+        candle_values.append(
+            (
+                candles.time,
+                extract_money_amount(candle.open),
+                extract_money_amount(candle.close),
+                extract_money_amount(candle.low),
+                extract_money_amount(candle.high)
+            )
+        )
+    return candle_values
 
 if __name__ == "__main__":
 

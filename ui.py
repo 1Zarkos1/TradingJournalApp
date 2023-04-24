@@ -5,6 +5,7 @@ from functools import partial
 from datetime import datetime
 from typing import Callable, List
 
+from PyQt6 import QtGui, QtCore
 from PyQt6.QtWidgets import (
     QApplication, 
     QWidget, 
@@ -28,9 +29,9 @@ from sqlalchemy.sql.expression import update
 from sqlalchemy.orm import Session
 import pyqtgraph as pg
 
-from main import get_available_accounts, API_TOKEN, ACCOUNT_NAME, PAGE_SIZE, Client, synchronize_operations
+from main import get_available_accounts, API_TOKEN, ACCOUNT_NAME, PAGE_SIZE, Client, synchronize_operations, get_walk_away_analysis_data
 from tables import Asset, Position, Operation, AdditionalPayment, get_engine, initialize_db
-from utils import get_positions_stats, get_positions_stats
+from utils import get_positions_stats, get_positions_stats, assign_class
 
 @dataclass
 class Field:
@@ -366,8 +367,30 @@ class JournalApp(QMainWindow):
         self.drawPositionSummary(layout, position)
         # draw executions summary
         self.drawOperationsSummary(layout, operations)
+        # draw walk away analysis
+        self.drawWalkAwaySection(layout, position, self._engine, self._token)
         # draw notes section
         self.drawNoteSection(layout, position)
+
+    def drawWalkAwaySection(self, layout, position, engine, token):
+        response = get_walk_away_analysis_data(engine, token, position)
+        walkAwaySection = QWidget()
+        waLayout = QGridLayout()
+        waLayout.setSpacing(0)
+        walkAwaySection.setLayout(waLayout)
+        for col_num, field in enumerate(response):
+            header_column = QLabel(field.upper())
+            header_column.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            header_column.setProperty("class", "header-label")
+            waLayout.addWidget(header_column, 0, col_num)
+        for col_n, field in enumerate(response):
+            widget = QLabel(response[field]["price"])
+            css_class = f"tradelist-field"
+            widget.setProperty("class", css_class)
+            widget = assign_class(position, widget)
+            widget.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            waLayout.addWidget(widget, 1, col_n)
+        layout.addWidget(walkAwaySection)
 
     def drawPositionSummary(self, layout, position):
         tradeSummarySection = QWidget()
