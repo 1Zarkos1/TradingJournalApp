@@ -16,12 +16,10 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QLineEdit,
     QCheckBox,
-    QSizePolicy,
-    QMdiSubWindow,
     QPlainTextEdit,
     QCompleter,
     QComboBox,
-    QDateTimeEdit
+    QDateTimeEdit,
 )
 from PyQt6.QtCore import QSize, QtMsgType, Qt, QEvent, QObject
 from PyQt6.QtGui import QFont, QCursor, QMouseEvent, QIcon, QImage, QPixmap
@@ -357,6 +355,7 @@ class JournalApp(QMainWindow):
         layout = QVBoxLayout()
         widget.setLayout(layout)
         self.setCentralWidget(widget)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         btn = QPushButton("return")
         btn.clicked.connect(self.initTradeListUI)
@@ -364,6 +363,13 @@ class JournalApp(QMainWindow):
 
         # draw chart
         # draw trade summary info
+        self.drawPositionSummary(layout, position)
+        # draw executions summary
+        self.drawOperationsSummary(layout, operations)
+        # draw notes section
+        self.drawNoteSection(layout, position)
+
+    def drawPositionSummary(self, layout, position):
         tradeSummarySection = QWidget()
         tsLayout = QGridLayout()
         tsLayout.setSpacing(0)
@@ -383,7 +389,8 @@ class JournalApp(QMainWindow):
             isinstance(dataValue, QLabel) and dataValue.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             tsLayout.addWidget(dataValue, 1, col_n)
         layout.addWidget(tradeSummarySection)
-        # draw executions summary
+
+    def drawOperationsSummary(self, layout, operations):
         operationsSummarySection = QWidget()
         osLayout = QGridLayout()
         osLayout.setSpacing(0)
@@ -401,24 +408,27 @@ class JournalApp(QMainWindow):
                 w.setAlignment(Qt.AlignmentFlag.AlignHCenter)
                 osLayout.addWidget(w, row_n, col_n)
         layout.addWidget(operationsSummarySection)
-        # draw notes section
+    
+    def drawNoteSection(self, layout: QVBoxLayout, position, add_update=False):
         noteSection = QWidget()
+        noteSection.setProperty("class", "note-section")
         nLayout = QVBoxLayout()
         noteSection.setLayout(nLayout)
         noteHeader = QLabel("notes".upper())
         noteHeader.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         noteHeader.setProperty("class", "header-label")
-        noteValue = QLabel(position.note)
+        noteValue = QPlainTextEdit(position.note) if add_update else QLabel(position.note)
         noteValue.setProperty("class", "tradelist-field")
         nLayout.addWidget(noteHeader)
         nLayout.addWidget(noteValue)
-        # addButton = QPushButton("Add note")  
-        # delButton = QPushButton("Delete note")
-        # nLayout.addWidget(addButton)
-        # nLayout.addWidget(delButton)
+        btnText = "Save note" if add_update else ("Add note" if not position.note else "Update note")
+        addButton = QPushButton(btnText)
+        addButton.clicked.connect(partial(self.processNote, position, noteValue, noteSection))
+        delButton = QPushButton("Delete note")
+        delButton.clicked.connect(partial(self.processNote, position, QPlainTextEdit(), noteSection))
+        nLayout.addWidget(addButton)
+        nLayout.addWidget(delButton)
         layout.addWidget(noteSection)
-
-        layout.addStretch()
     
     def updateUIForRecords(self):
         self.drawTradeListTable(update=True)
@@ -524,6 +534,21 @@ class JournalApp(QMainWindow):
         self.activeFilters = {}
         self._records = Position.get_positions(self._engine)
         self.initTradeListUI()
+
+    
+    def processNote(self, position, noteWidget, noteSection):
+        layout = self.centralWidget().layout()
+        layout.removeWidget(noteSection)
+        noteSection.setParent(None)
+        if isinstance(noteWidget, QLabel):
+            self.drawNoteSection(layout, position, add_update=True)
+        else:
+            position.note = noteWidget.toPlainText()
+            with Session(self._engine) as session:
+                session.add(position)
+                session.commit()
+                session.refresh(position)
+            self.drawNoteSection(layout, position, add_update=False)
 
 class Test(QMainWindow):
     def __init__(self) -> None:
