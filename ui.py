@@ -2,7 +2,7 @@ import sys
 import math
 from functools import partial
 from datetime import datetime
-from typing import List
+from typing import List, Callable
 
 from PyQt6.QtWidgets import (
     QApplication, 
@@ -46,12 +46,17 @@ class NoteSubWindow(QWidget):
         self._parent = parent
         self.setWindowTitle("AddNote")
         self.position = obj.position
+        self.setFont(QFont(["Roboto", "Poppins", "sans-serif"]))
+        with open("style.css", "r") as f:
+            self.setStyleSheet(f.read())
         self.initUI()
 
     def initUI(self):
         layout = QVBoxLayout()
         self.setLayout(layout)
+        self.setProperty("class", "note-subwindow buttons-section")
         textEdit = QPlainTextEdit(self.position.note)
+        textEdit.setProperty("class", "note-edit")
         okBtn = QPushButton("Save")
         cancelBtn = QPushButton("Cancel")
         okBtn.clicked.connect(partial(self._parent.saveNote, textEdit, self.position, self))
@@ -66,7 +71,7 @@ class JournalApp(QMainWindow):
         super().__init__()
 
         self.currentPage = 0
-        self.setFont(QFont(["Poppins", "sans-serif"]))
+        self.setFont(QFont(["Roboto", "Poppins", "sans-serif"]))
         with open("style.css", "r") as f:
             self.setStyleSheet(f.read())
         self.initAccountSelectionUI()
@@ -107,9 +112,10 @@ class JournalApp(QMainWindow):
     def initTradeListUI(self):
         central = QWidget(self)
         self.tradeListLayout = QVBoxLayout()
+        self.tradeListLayout.setSpacing(0)
         central.setLayout(self.tradeListLayout)
 
-        self.drawTopMenuButtons()
+        self.drawTopMenuButtons(self.tradeListLayout)
         self.drawFilterField()
         self.drawTradeListTable()
         self.drawPageSelection()
@@ -117,9 +123,11 @@ class JournalApp(QMainWindow):
 
         self.setCentralWidget(central)
 
-    def drawTopMenuButtons(self) -> None:
+    def drawTopMenuButtons(self, layout, returnBtn=False) -> None:
         self.topMenuButtonsWidget = QWidget()
         buttonsLayout = QHBoxLayout()
+        buttonsLayout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.topMenuButtonsWidget.setProperty("class", "buttons-section")
         self.topMenuButtonsWidget.setLayout(buttonsLayout)
         accountChange = QPushButton("Change account")
         accountChange.clicked.connect(self.initAccountSelectionUI)
@@ -127,7 +135,11 @@ class JournalApp(QMainWindow):
         syncTrades.clicked.connect(self.updateTrades)
         buttonsLayout.addWidget(accountChange)
         buttonsLayout.addWidget(syncTrades)
-        self.tradeListLayout.addWidget(self.topMenuButtonsWidget)
+        if returnBtn:
+            returnBtn = QPushButton("return")
+            returnBtn.clicked.connect(self.initTradeListUI)
+            buttonsLayout.addWidget(returnBtn)
+        layout.addWidget(self.topMenuButtonsWidget)
 
     def drawTradeListTable(self, update=False):
         if update:
@@ -170,7 +182,7 @@ class JournalApp(QMainWindow):
                 widget = field.widget(value)
                 widget.setProperty("class", css_class)
                 field.modifier(widget) if getattr(field, "modifier") else None
-                isinstance(widget, QLabel) and widget.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                isinstance(widget, QLabel) and widget.setAlignment(Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignVCenter)
                 layout.addWidget(widget, row_n, col_n)
 
                 if field.attribute == "note":
@@ -190,6 +202,7 @@ class JournalApp(QMainWindow):
             currentPageSelection = self.pageSelectionWidget
         number_of_pages = math.ceil(len(self._records)/PAGE_SIZE)
         self.pageSelectionWidget = QWidget()
+        self.pageSelectionWidget.setProperty("class", "buttons-section page-btns")
         layout = QHBoxLayout()
         self.pageSelectionWidget.setLayout(layout)
         for page in range(1, number_of_pages+1):
@@ -282,9 +295,7 @@ class JournalApp(QMainWindow):
         self.setCentralWidget(widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        btn = QPushButton("return")
-        btn.clicked.connect(self.initTradeListUI)
-        layout.addWidget(btn)
+        self.drawTopMenuButtons(layout, returnBtn=True)
 
         # draw chart
         self.drawPositionChart(layout, position)
@@ -307,7 +318,7 @@ class JournalApp(QMainWindow):
     def drawWalkAwaySection(self, layout, position, engine, token):
         response = get_walk_away_analysis_data(engine, token, position)
         data = [{field: values["price"] for field, values in response.items()}]
-        table = self.drawTableWidget(data, position)
+        table = self.drawTableWidget(data, partial(assign_class, position))
         layout.addWidget(table)
 
     def drawPositionSummary(self, layout, position):
@@ -338,14 +349,14 @@ class JournalApp(QMainWindow):
     
     def drawNoteSection(self, layout: QVBoxLayout, position, add_update=False):
         noteSection = QWidget()
-        noteSection.setProperty("class", "note-section")
+        noteSection.setProperty("class", "buttons-section note-section")
         nLayout = QVBoxLayout()
         noteSection.setLayout(nLayout)
         noteHeader = QLabel("notes".upper())
         noteHeader.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         noteHeader.setProperty("class", "header-label")
         noteValue = QPlainTextEdit(position.note) if add_update else QLabel(position.note)
-        noteValue.setProperty("class", "tradelist-field")
+        noteValue.setProperty("class", "note-edit")
         nLayout.addWidget(noteHeader)
         nLayout.addWidget(noteValue)
         btnText = "Save note" if add_update else ("Add note" if not position.note else "Update note")
@@ -365,9 +376,7 @@ class JournalApp(QMainWindow):
         positions = self.selectedPositions or self._records
         stats = get_positions_stats(positions)
 
-        btn = QPushButton("Return")
-        btn.clicked.connect(self.initTradeListUI)
-        self.statsPageLayout.addWidget(btn)
+        self.drawTopMenuButtons(self.statsPageLayout, returnBtn=True)
 
         for section, data in stats.items():
             section_widget = QWidget()
@@ -388,7 +397,7 @@ class JournalApp(QMainWindow):
 
         self.setCentralWidget(self.statsPageWidget)
     
-    def drawTableWidget(self, values: List[dict], position: Position | None = None):
+    def drawTableWidget(self, values: List[dict], widget_modifier: Callable = lambda w: w):
         table = QWidget()
         layout = QGridLayout()
         layout.setSpacing(0)
@@ -403,7 +412,7 @@ class JournalApp(QMainWindow):
                 widget = QLabel(str(value))
                 css_class = f"tradelist-field"
                 widget.setProperty("class", css_class)
-                # widget = assign_class(position, widget)
+                widget = widget_modifier(widget)
                 widget.setAlignment(Qt.AlignmentFlag.AlignHCenter)
                 layout.addWidget(widget, row_n, col_n)
         

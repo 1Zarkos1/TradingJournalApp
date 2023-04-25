@@ -33,7 +33,7 @@ def iconModifier(widget: QLabel):
         icon_path = "static/add.png"
     image = QPixmap(icon_path)
     image = image.scaled(15, 15)
-    widget.setPixmap(image)
+    widget.setPixmap(image) 
 
 tradelist_fields: List[Field] = [
     Field(
@@ -45,8 +45,8 @@ tradelist_fields: List[Field] = [
     ),
     Field(
         attribute="status",
-        value=lambda pos: "WIN" if pos.result > 0 else "LOSS",
-        modifier=lambda widget: widget.setProperty("class", f"status-label {widget.text() == 'LOSS' and 'lost'}"),
+        value=lambda pos: "OPEN" if not pos.closed else ("WIN" if pos.result > 0 else "LOSS"),
+        modifier=lambda widget: widget.setProperty("class", f"status-label {widget.text().lower()}"),
         class_="status-label",
         header_value="status"
     ),
