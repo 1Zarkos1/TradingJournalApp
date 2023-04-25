@@ -10,6 +10,22 @@ from tinkoff.invest.schemas import MoneyValue
 def extract_money_amount(moneyObj: MoneyValue) -> float:
     return round(moneyObj.units + moneyObj.nano*0.000000001, 2)
 
+def assign_class(position, widget):
+    class_ = "red"
+    side = position.side.lower()
+    close = position.closing_price
+    try:
+        history_price = float(widget.text())
+        if (
+            (history_price > close and side == "buy") 
+            or (history_price < close and side == "sell")
+        ):
+            class_ = "green"
+        widget.setProperty("class", widget.property("class")+ " " + class_)
+    except Exception as e:
+        print(e)
+    return widget
+
 def convert_timedelta_to_str(time: timedelta) -> str:
     days = f"{time.days}d "
     hours = time.seconds // 3600
