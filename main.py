@@ -198,7 +198,7 @@ def get_graph_data(engine, token, position):
     for candle in candles:
         candle_values.append(
             (
-                candles.time,
+                candle.time.timestamp(),
                 extract_money_amount(candle.open),
                 extract_money_amount(candle.close),
                 extract_money_amount(candle.low),

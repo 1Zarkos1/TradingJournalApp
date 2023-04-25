@@ -245,7 +245,7 @@ class Position(Base):
         return position
 
     @classmethod
-    def get_positions(cls, engine, filters={}, sorting_field="", sorting_order: int = 0):
+    def get_positions(cls, engine, filters={}, sorting_field="close_date", sorting_order: int = 1):
         with Session(engine) as session:
             query = select(Position)
             sorting_field = getattr(cls, sorting_field, None)
@@ -271,7 +271,7 @@ class Position(Base):
                     sorting_field = sorting_field.desc if sorting_order else sorting_field.asc
                     query = query.order_by(sorting_field())
             except Exception as e:
-                pass
+                print(e)
             return session.scalars(query).all()
 
     def update(self, operation: Operation, payment: float) -> None:

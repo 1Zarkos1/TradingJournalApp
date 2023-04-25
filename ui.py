@@ -29,9 +29,10 @@ from sqlalchemy.sql.expression import update
 from sqlalchemy.orm import Session
 import pyqtgraph as pg
 
-from main import get_available_accounts, API_TOKEN, ACCOUNT_NAME, PAGE_SIZE, Client, synchronize_operations, get_walk_away_analysis_data
+from main import get_available_accounts, API_TOKEN, ACCOUNT_NAME, PAGE_SIZE, Client, synchronize_operations, get_walk_away_analysis_data, get_graph_data
 from tables import Asset, Position, Operation, AdditionalPayment, get_engine, initialize_db
 from utils import get_positions_stats, get_positions_stats, assign_class
+from qwe import CandlestickItem
 
 @dataclass
 class Field:
@@ -147,6 +148,7 @@ class JournalApp(QMainWindow):
         with open("style.css", "r") as f:
             self.setStyleSheet(f.read())
         self.selectedPositions = []
+        self.sortingField = ("open_date", 0)
         self.initAccountSelectionUI()
 
     def initAccountSelectionUI(self, account_name: str = ACCOUNT_NAME):
@@ -371,6 +373,15 @@ class JournalApp(QMainWindow):
         self.drawWalkAwaySection(layout, position, self._engine, self._token)
         # draw notes section
         self.drawNoteSection(layout, position)
+        data = get_graph_data(self._engine, self._token, position)
+        import pyqtgraph as pg
+        item = CandlestickItem(data)
+        w = pg.PlotWidget()
+        w.addItem(item)
+        layout.addWidget(w)
+        # plt = pg.plot()
+        # plt.addItem(item)
+        # plt.setWindowTitle('pyqtgraph example: customGraphicsItem')
 
     def drawWalkAwaySection(self, layout, position, engine, token):
         response = get_walk_away_analysis_data(engine, token, position)
@@ -530,10 +541,11 @@ class JournalApp(QMainWindow):
         self.drawTradeListTable(update=True)
 
     def sortResults(self, label_obj):
-        sort_field = [obj.attribute for obj in tradelist_fields if obj.header_value == label_obj.text().lower()][0]
-        sort_order = getattr(label_obj, "sort_order", None)
-        label_obj.sort_order = 0 if sort_order is None or sort_order == 1 else 1
-        self._records = Position.get_positions(self._engine, filters=self.activeFilters, sorting_field=sort_field, sorting_order=label_obj.sort_order)
+        column_name = label_obj.text().lower()
+        sort_field = [obj.attribute for obj in tradelist_fields if obj.header_value == column_name][0]
+        sort_order = int(not self.sortingField[1]) if column_name == self.sortingField[0] else 0
+        self.sortingField = (column_name, sort_order)
+        self._records = Position.get_positions(self._engine, filters=self.activeFilters, sorting_field=sort_field, sorting_order=sort_order)
         self.updateUIForRecords()
 
     def changePage(self, page):
