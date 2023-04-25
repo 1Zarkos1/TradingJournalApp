@@ -123,16 +123,16 @@ class NoteSubWindow(QWidget):
         super().__init__()
         self._parent = parent
         self.setWindowTitle("AddNote")
-        self._editedNote = obj
+        self.position = obj.position
         self.initUI()
 
     def initUI(self):
         layout = QVBoxLayout()
         self.setLayout(layout)
-        textEdit = QPlainTextEdit(self._editedNote.toolTip())
+        textEdit = QPlainTextEdit(self.position.note)
         okBtn = QPushButton("Save")
         cancelBtn = QPushButton("Cancel")
-        okBtn.clicked.connect(partial(self._parent.saveNote, textEdit, self._editedNote.id))
+        okBtn.clicked.connect(partial(self._parent.saveNote, textEdit, self.position, self))
         cancelBtn.clicked.connect(self.close)
         layout.addWidget(textEdit)
         layout.addWidget(okBtn)
@@ -252,7 +252,7 @@ class JournalApp(QMainWindow):
                 layout.addWidget(widget, row_n, col_n)
 
                 if field.attribute == "note":
-                    widget.id = position.id
+                    widget.position = position
                     widget.installEventFilter(self)
 
                 if field.attribute == "ticker":
@@ -533,11 +533,13 @@ class JournalApp(QMainWindow):
                 self.sortResults(a0)
         return super().eventFilter(a0, a1)
 
-    def saveNote(self, note, posId):
+    def saveNote(self, note, position, subwindow):
+        position.note = note.toPlainText()
+        subwindow.close()
         with Session(self._engine) as session:
-            exp = update(Position).where(Position.id == posId).values(note=note.toPlainText())
-            session.execute(exp)
+            session.add(position)
             session.commit()
+            session.refresh(position)
         self.drawTradeListTable(update=True)
 
     def sortResults(self, label_obj):
