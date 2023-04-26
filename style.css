@@ -1,12 +1,10 @@
 QMainWindow {
-    /* background-color: #171b29; */
     background-color: #1d2331;
     background-color: rgb(18, 23, 33);
     padding: 0px;
     margin: 0px;
 }
 .note-subwindow {
-    /* background-color: #171b29; */
     background-color: #1d2331;
     background-color: rgb(18, 23, 33);
     padding: 0px;
@@ -56,7 +54,7 @@ QLabel.side {
     font-weight: bold;
     font-size: 10px;
     text-transform: uppercase;
-    /* border-bottom: 1px solid white; */
+    height: 25px;
 }
 .tradelist-field {
     font-size: 12px;
@@ -87,16 +85,12 @@ QLabel.side {
     text-transform: uppercase;
     font-weight: bold;
 }
-.filter-container {
-    /* background-color: red; */
-}
 .filter-container QWidget {
     background: transparent;
     text-transform: uppercase;
     color: #e4e7ea;
     border: 1px solid #009792;
     height: 30%;
-    /* width: 30px; */
     border-radius: 2px;
 }
 .filter-container QPushButton {
@@ -129,7 +123,6 @@ QLabel.side {
     margin: 0;
 }
 .stats-section-data {
-    /* background-color: rgb(235, 173, 173); */
     padding: 0;
 }
 .tradelist-field.green {
@@ -137,4 +130,11 @@ QLabel.side {
 }
 .tradelist-field.red {
     color: red;
+}
+QCheckBox {
+    padding: 0px 10px;
+    max-width: 15px;
+}
+.position-ui .ticker-label {
+    border: none;
 }

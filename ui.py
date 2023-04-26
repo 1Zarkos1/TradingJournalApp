@@ -1,5 +1,6 @@
 import sys
 import math
+import ctypes
 from functools import partial
 from datetime import datetime
 from typing import List, Callable
@@ -21,7 +22,7 @@ from PyQt6.QtWidgets import (
     QDateTimeEdit,
 )
 from PyQt6.QtCore import Qt, QEvent, QObject
-from PyQt6.QtGui import QFont, QMouseEvent
+from PyQt6.QtGui import QFont, QMouseEvent, QIcon
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 import pyqtgraph as pg
@@ -37,6 +38,11 @@ from main import (
 )
 from tables import Position, Operation, get_engine, initialize_db
 from utils import get_positions_stats, get_positions_stats, assign_class, tradelist_fields, CandlestickItem
+
+
+# make app icon show in taskbar on Windows
+myappid = "tInvest"
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 
 class NoteSubWindow(QWidget):
@@ -72,6 +78,7 @@ class JournalApp(QMainWindow):
 
         self.currentPage = 0
         self.setFont(QFont(["Roboto", "Poppins", "sans-serif"]))
+        self.setWindowIcon(QIcon("static/bar.png"))
         with open("style.css", "r") as f:
             self.setStyleSheet(f.read())
         self.initAccountSelectionUI()
@@ -101,9 +108,13 @@ class JournalApp(QMainWindow):
             central = QWidget(self)
             layout = QVBoxLayout()
             central.setLayout(layout)
-            central.setProperty("class", "central")
+            layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            central.setProperty("class", "note-subwindow buttons-section")
             self.setCentralWidget(central)
-            layout.addWidget(QLabel("Select trading account:"))
+            label = QLabel("Select trading account:")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setProperty("class", "header-label")
+            layout.addWidget(label)
             for account_name, account_properties in accounts.items():
                 selection_btn = QPushButton(account_name)
                 selection_btn.clicked.connect(partial(self.setUpAppForSelectedAccount, account_name, account_properties))
@@ -113,6 +124,7 @@ class JournalApp(QMainWindow):
         central = QWidget(self)
         self.tradeListLayout = QVBoxLayout()
         self.tradeListLayout.setSpacing(0)
+        central.setProperty("class", "centra-tradelist")
         central.setLayout(self.tradeListLayout)
 
         self.drawTopMenuButtons(self.tradeListLayout)
@@ -159,11 +171,12 @@ class JournalApp(QMainWindow):
             self.tradeListLayout.addWidget(self.tradeListTableWidget)
 
     def drawTradeListTableHeader(self, layout) -> None:
-        header_column = QCheckBox()
         currentPageRecords = self._records[self.currentPage*PAGE_SIZE:self.currentPage*PAGE_SIZE+PAGE_SIZE]
+        header_column = QCheckBox()
         if currentPageRecords and len(set(currentPageRecords).intersection(self.selectedPositions)) == len(currentPageRecords):
             header_column.setChecked(True)
         header_column.stateChanged.connect(self.toggleSelectedPositions)
+        header_column.setProperty("class", "cbox-list header-label")
         layout.addWidget(header_column, 0, 0)
         for col_num, field in enumerate(tradelist_fields[1:], start=1):
             header_column = QLabel(field.header_value.upper())
@@ -292,6 +305,7 @@ class JournalApp(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout()
         widget.setLayout(layout)
+        widget.setProperty("class", "position-ui")
         self.setCentralWidget(widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
@@ -338,7 +352,7 @@ class JournalApp(QMainWindow):
             dataValue = field.widget(value)
             dataValue.setProperty("class", css_class)
             field.modifier(dataValue) if getattr(field, "modifier") else None
-            isinstance(dataValue, QLabel) and dataValue.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            isinstance(dataValue, QLabel) and dataValue.setAlignment(Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignVCenter)
             tsLayout.addWidget(dataValue, 1, col_n)
         layout.addWidget(tradeSummarySection)
 
