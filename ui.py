@@ -547,4 +547,4 @@ app = QApplication(sys.argv)
 window = JournalApp()
 window.show()
 
-app.exec()
+sys.exit(app.exec())

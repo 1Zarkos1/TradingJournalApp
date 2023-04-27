@@ -7,15 +7,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from tinkoff.invest import Client
 from tinkoff.invest.schemas import OperationState, OperationType, Operation as Sdk_Operation
+from tinkoff.invest.exceptions import RequestError
+from grpc import StatusCode
 
 from tables import Base, Asset, Operation, AdditionalPayment, initialize_db, get_engine
-from utils import extract_money_amount
+from utils import extract_money_amount, get_account_info_from_env, set_account_info_to_env
 
 load_dotenv(".env")
 
 API_TOKEN = os.getenv("T_TOKEN")
 ACCOUNT_NAME = os.getenv("DEFAULT_ACCOUNT_NAME")
-DB_NAME = f"{ACCOUNT_NAME.lower()}_{os.getenv('DB_NAME')}"
+DB_NAME = f"{ACCOUNT_NAME.lower()}_{os.getenv('DB_SUFFIX')}"
 EXECUTED_OPERATION = OperationState.OPERATION_STATE_EXECUTED
 PAGE_SIZE = int(os.getenv("DEFAULT_PAGE_SIZE"))
 
@@ -25,21 +27,28 @@ OPERATION_TYPES = {
     OperationType.OPERATION_TYPE_BROKER_FEE: "Fee"
 }
 
-def get_available_accounts() -> dict:
-    tokens = [os.environ.get(key) for key in dict(os.environ) if key.endswith("_TOKEN")]
+def get_available_accounts(get_online=False) -> dict:
+    tokens = {
+        key: os.environ.get(key) 
+        for key in dict(os.environ) 
+        if key.endswith("_TOKEN")
+    }
     accounts = {}
-    for token in tokens:
-        with Client(token) as client:
-            accounts_response = client.users.get_accounts().accounts
-            available_accounts: dict = {
-                account.name: {
-                    "id": account.id,
-                    "open_date": account.opened_date,
-                    "token": token
-                }
-                for account in accounts_response
-            }
-            accounts = accounts | available_accounts
+    for token_key, token in tokens.items():
+        acc_name = token_key.split("_")[0]
+        available_accounts = get_account_info_from_env(acc_name, token)
+        if not available_accounts:
+            print("poling from net")
+            with Client(token) as client:
+                try:
+                    accounts_response = client.users.get_accounts().accounts
+                except RequestError as e:
+                    if e.code == StatusCode.UNAVAILABLE:
+                        print("Unavailable")
+                for account in accounts_response:
+                    set_account_info_to_env(account)
+                    available_accounts = get_account_info_from_env(acc_name, token)
+        accounts = accounts | available_accounts
     return accounts
 
 def get_account(available_accounts, account_name: str = ACCOUNT_NAME) -> dict:

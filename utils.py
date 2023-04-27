@@ -1,10 +1,12 @@
-from datetime import timedelta
+import os
+from datetime import timedelta, datetime
 from dataclasses import dataclass
 from typing import Callable, List
 
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
+from dotenv import load_dotenv, set_key
 from tinkoff.invest.schemas import MoneyValue
 from pyqtgraph import QtCore, QtGui
 from PyQt6.QtWidgets import (
@@ -166,6 +168,36 @@ def get_positions_stats(data):
         group_by_side[section]["average_time_in_trade"] = convert_timedelta_to_str(time)
     return group_by_side
 
+def get_account_info_from_env(name, token):
+    var_prefix = f"{name}_"
+    load_dotenv(".env")
+    acc_name = os.environ.get(f"{var_prefix}NAME")
+    id_ = os.environ.get(f"{var_prefix}ID")
+    open_date = os.environ.get(f"{var_prefix}OPEN_DATE")
+    token = token
+    if all([acc_name, id_, open_date, token]):
+        return {
+            acc_name: {
+                "id": id_,
+                "open_date": datetime.fromtimestamp(float(open_date)),
+                "token": token
+            }
+        }
+    else:
+        return None
+
+def set_account_info_to_env(account_resp):
+    var_prefix = f"{account_resp.name.upper()}_"
+    set_key(".env", f"{var_prefix}ID", account_resp.id)
+    set_key(".env", f"{var_prefix}OPEN_DATE", str(account_resp.opened_date.timestamp()))
+    set_key(".env", f"{var_prefix}NAME", account_resp.name)
+
+def find_accounts_db_in_system(db_suffix):
+    accounts_available = []
+    for filename in os.listdir("."):
+        if filename.endswith(db_suffix):
+            accounts_available.append(filename.split("_")[0].lower())
+    return accounts_available
 
 class CandlestickItem(pg.GraphicsObject):
     ## Create a subclass of GraphicsObject.
