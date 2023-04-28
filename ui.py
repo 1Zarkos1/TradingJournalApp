@@ -1,6 +1,7 @@
 import sys
 import math
 import ctypes
+import time
 from functools import partial
 from datetime import datetime
 from typing import List, Callable
@@ -26,6 +27,7 @@ from PyQt6.QtGui import QFont, QMouseEvent, QIcon
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 import pyqtgraph as pg
+import numpy as np
 
 from main import (
     get_available_accounts, 
@@ -37,7 +39,13 @@ from main import (
     get_graph_data
 )
 from tables import Position, Operation, get_engine, initialize_db
-from utils import get_positions_stats, get_positions_stats, assign_class, tradelist_fields, CandlestickItem
+from utils import (
+    get_positions_stats, 
+    assign_class, 
+    tradelist_fields, 
+    CandlestickItem, 
+    modify_positions_stats
+)
 
 
 # make app icon show in taskbar on Windows
@@ -83,7 +91,7 @@ class JournalApp(QMainWindow):
             self.setStyleSheet(f.read())
         self.initAccountSelectionUI()
 
-    def setUpAppForSelectedAccount(self, account_name, account_properties):
+    def setUpAppForSelectedAccount(self, account_name: str, account_properties: dict) -> None:
         self.setWindowTitle(f"TradingJournal - {account_name}")
         self.account = account_name
         self._token = account_properties.get("token")
@@ -100,7 +108,7 @@ class JournalApp(QMainWindow):
  
     ### UI Draw Methods ###
 
-    def initAccountSelectionUI(self, account_name: str = ACCOUNT_NAME):
+    def initAccountSelectionUI(self, account_name: str = ACCOUNT_NAME) -> None:
         accounts = get_available_accounts()
         if properties := accounts.get(account_name):
             self.setUpAppForSelectedAccount(account_name, properties)
@@ -120,7 +128,7 @@ class JournalApp(QMainWindow):
                 selection_btn.clicked.connect(partial(self.setUpAppForSelectedAccount, account_name, account_properties))
                 layout.addWidget(selection_btn)
 
-    def initTradeListUI(self):
+    def initTradeListUI(self) -> None:
         central = QWidget(self)
         self.tradeListLayout = QVBoxLayout()
         self.tradeListLayout.setSpacing(0)
@@ -135,7 +143,7 @@ class JournalApp(QMainWindow):
 
         self.setCentralWidget(central)
 
-    def drawTopMenuButtons(self, layout, returnBtn=False) -> None:
+    def drawTopMenuButtons(self, layout: QVBoxLayout, returnBtn: bool = False) -> None:
         self.topMenuButtonsWidget = QWidget()
         buttonsLayout = QHBoxLayout()
         buttonsLayout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -147,13 +155,16 @@ class JournalApp(QMainWindow):
         syncTrades.clicked.connect(self.updateTrades)
         buttonsLayout.addWidget(accountChange)
         buttonsLayout.addWidget(syncTrades)
+        switchToChart = QPushButton("Chart")
+        switchToChart.clicked.connect(self.drawGraphPage)
+        buttonsLayout.addWidget(switchToChart)
         if returnBtn:
             returnBtn = QPushButton("return")
             returnBtn.clicked.connect(self.initTradeListUI)
             buttonsLayout.addWidget(returnBtn)
         layout.addWidget(self.topMenuButtonsWidget)
 
-    def drawTradeListTable(self, update=False):
+    def drawTradeListTable(self, update: bool = False) -> None:
         if update:
             currentTableWidget = self.tradeListTableWidget
         self.tradeListTableWidget = QWidget()
@@ -170,7 +181,7 @@ class JournalApp(QMainWindow):
         else:
             self.tradeListLayout.addWidget(self.tradeListTableWidget)
 
-    def drawTradeListTableHeader(self, layout) -> None:
+    def drawTradeListTableHeader(self, layout: QGridLayout) -> None:
         currentPageRecords = self._records[self.currentPage*PAGE_SIZE:self.currentPage*PAGE_SIZE+PAGE_SIZE]
         header_column = QCheckBox()
         if currentPageRecords and len(set(currentPageRecords).intersection(self.selectedPositions)) == len(currentPageRecords):
@@ -185,7 +196,7 @@ class JournalApp(QMainWindow):
             header_column.installEventFilter(self)
             layout.addWidget(header_column, 0, col_num)
 
-    def drawTradeListTableBody(self, layout):
+    def drawTradeListTableBody(self, layout: QGridLayout) -> None:
         currentPageRecords = self._records[self.currentPage*PAGE_SIZE:self.currentPage*PAGE_SIZE+PAGE_SIZE]
         
         for row_n, position in enumerate(currentPageRecords, start=1):
@@ -210,7 +221,7 @@ class JournalApp(QMainWindow):
                         widget.setChecked(True)
                     widget.stateChanged.connect(partial(self.selectPositions, position))
 
-    def drawPageSelection(self, update=False):
+    def drawPageSelection(self, update: bool = False) -> None:
         if update:
             currentPageSelection = self.pageSelectionWidget
         number_of_pages = math.ceil(len(self._records)/PAGE_SIZE)
@@ -230,7 +241,7 @@ class JournalApp(QMainWindow):
         else:
             self.tradeListLayout.addWidget(self.pageSelectionWidget, alignment=Qt.AlignmentFlag.AlignRight)
 
-    def drawTotalStats(self, update=False):
+    def drawTotalStats(self, update: bool = False) -> None:
         if update:
             currentStats = self.totalStatsWidget
         positions = self.selectedPositions or self._records
@@ -251,7 +262,7 @@ class JournalApp(QMainWindow):
         else:
             self.tradeListLayout.addWidget(self.totalStatsWidget, alignment=Qt.AlignmentFlag.AlignJustify)
 
-    def drawFilterField(self, update=False):
+    def drawFilterField(self, update: bool = False) -> None:
         if update:
             currentFilter = self.filterWidget
 
@@ -300,7 +311,7 @@ class JournalApp(QMainWindow):
         else:
             self.tradeListLayout.addWidget(self.filterWidget, alignment=Qt.AlignmentFlag.AlignHCenter)
  
-    def drawIndividualPositionUI(self, position):
+    def drawIndividualPositionUI(self, position: Position) -> None:
         operations = position.operations
         widget = QWidget()
         layout = QVBoxLayout()
@@ -322,20 +333,30 @@ class JournalApp(QMainWindow):
         # draw notes section
         self.drawNoteSection(layout, position)
         
-    def drawPositionChart(self, layout, position):
+    def drawPositionChart(self, layout: QVBoxLayout, position: Position) -> None:
         data = get_graph_data(self._engine, self._token, position)
         item = CandlestickItem(data)
         w = pg.PlotWidget()
         w.addItem(item)
+        t1= pg.TargetItem()
+        from datetime import timezone
+        d = position.close_date.replace(tzinfo=timezone.utc).timestamp()
+        t2= pg.TargetItem(
+            pos=(d, position.closing_price),
+            pen="#F4511E",
+            label="{1:0.2f}"
+        )
+        w.addItem(t1)
+        w.addItem(t2)
         layout.addWidget(w)
 
-    def drawWalkAwaySection(self, layout, position, engine, token):
+    def drawWalkAwaySection(self, layout: QVBoxLayout, position: Position, engine: "Engine", token: str) -> None:
         response = get_walk_away_analysis_data(engine, token, position)
         data = [{field: values["price"] for field, values in response.items()}]
         table = self.drawTableWidget(data, partial(assign_class, position))
         layout.addWidget(table)
 
-    def drawPositionSummary(self, layout, position):
+    def drawPositionSummary(self, layout: QVBoxLayout, position: Position) -> None:
         tradeSummarySection = QWidget()
         tsLayout = QGridLayout()
         tsLayout.setSpacing(0)
@@ -356,12 +377,12 @@ class JournalApp(QMainWindow):
             tsLayout.addWidget(dataValue, 1, col_n)
         layout.addWidget(tradeSummarySection)
 
-    def drawOperationsSummary(self, layout, operations):
+    def drawOperationsSummary(self, layout: QVBoxLayout, operations: List[Operation]) -> None:
         data = [operation.to_dict() for operation in operations]
         table = self.drawTableWidget(data)
         layout.addWidget(table)
     
-    def drawNoteSection(self, layout: QVBoxLayout, position, add_update=False):
+    def drawNoteSection(self, layout: QVBoxLayout, position: Position, add_update: bool = False) -> None:
         noteSection = QWidget()
         noteSection.setProperty("class", "buttons-section note-section")
         nLayout = QVBoxLayout()
@@ -382,9 +403,10 @@ class JournalApp(QMainWindow):
         nLayout.addWidget(delButton)
         layout.addWidget(noteSection)
     
-    def drawTotalStatsPage(self):
+    def drawTotalStatsPage(self) -> None:
         self.statsPageWidget = QWidget()
         self.statsPageLayout = QVBoxLayout()
+        self.statsPageLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.statsPageWidget.setLayout(self.statsPageLayout)
         self.statsPageLayout.setSpacing(8)
         positions = self.selectedPositions or self._records
@@ -411,7 +433,7 @@ class JournalApp(QMainWindow):
 
         self.setCentralWidget(self.statsPageWidget)
     
-    def drawTableWidget(self, values: List[dict], widget_modifier: Callable = lambda w: w):
+    def drawTableWidget(self, values: List[dict], widget_modifier: Callable = lambda w: w) -> QWidget:
         table = QWidget()
         layout = QGridLayout()
         layout.setSpacing(0)
@@ -431,32 +453,40 @@ class JournalApp(QMainWindow):
                 layout.addWidget(widget, row_n, col_n)
         
         return table
-
-        operationsSummarySection = QWidget()
-        osLayout = QGridLayout()
-        osLayout.setSpacing(0)
-        operationsSummarySection.setLayout(osLayout)
-        for col_n, field in enumerate(operations[0].to_dict()):
-            header_column = QLabel(field.upper())
-            header_column.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            header_column.setProperty("class", "header-label")
-            osLayout.addWidget(header_column, 0, col_n)
-        for row_n, operation in enumerate(operations, start=1):
-            for col_n, value in enumerate(operation.to_dict().values()):
-                css_class = f"tradelist-field"
-                w = QLabel(str(value))
-                w.setProperty("class", css_class)
-                w.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-                osLayout.addWidget(w, row_n, col_n)
-        layout.addWidget(operationsSummarySection)
     
-    def drawNoteSubWindow(self, obj):
+    def drawGraphPage(self) -> None:
+        df = modify_positions_stats(self._records)
+        widget = QWidget()
+        layout = QVBoxLayout()
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+        pg.setConfigOptions(antialias=True)
+        w = pg.GraphicsLayoutWidget(show=True)
+        pItem = pg.PlotWidget()
+        w.addItem(pItem)
+        axis = pg.DateAxisItem("bottom")
+        pItem.setAxisItems({"bottom": axis})
+        # d = df.groupby([pd.Grouper(key='close_date', freq='W')])["close_date",'result'].sum()
+        # d = d.reset_index()
+        pItem.plot(df["close_date"].astype('int64') // 10**9, df["result"].cumsum())
+        layout.addWidget(w)
+
+
+    def _update_canvas(self):
+        t = np.linspace(0, 10, 101)
+        # Shift the sinusoid as a function of time.
+        self._line.set_data(t, np.sin(t + time.time()))
+        self._line.figure.canvas.draw()
+
+
+    def drawNoteSubWindow(self, obj: QLabel) -> None:
         self.subwindow = NoteSubWindow(parent=self, obj=obj)
         self.subwindow.show()
 
     ### Slots ###
 
-    def toggleSelectedPositions(self, state):
+    def toggleSelectedPositions(self, state: int) -> None:
         try:
             tableLayout = self.tradeListTableWidget.layout()
             for i in range(1, 1+PAGE_SIZE):
@@ -465,12 +495,12 @@ class JournalApp(QMainWindow):
         except AttributeError as e:
             ...
  
-    def updateUIForRecords(self):
+    def updateUIForRecords(self) -> None:
         self.drawTradeListTable(update=True)
         self.drawPageSelection(update=True)
         self.drawTotalStats(update=True)
     
-    def selectPositions(self, position, state):
+    def selectPositions(self, position: Position, state: int) -> None:
         if state:
             self.selectedPositions.append(position)
         else:
@@ -488,7 +518,7 @@ class JournalApp(QMainWindow):
                 self.sortResults(a0)
         return super().eventFilter(a0, a1)
 
-    def saveNote(self, note, position, subwindow):
+    def saveNote(self, note: QPlainTextEdit, position: Position, subwindow: QWidget) -> None:
         position.note = note.toPlainText()
         subwindow.close()
         with Session(self._engine) as session:
@@ -497,7 +527,7 @@ class JournalApp(QMainWindow):
             session.refresh(position)
         self.drawTradeListTable(update=True)
 
-    def sortResults(self, label_obj):
+    def sortResults(self, label_obj: QLabel) -> None:
         column_name = label_obj.text().lower()
         sort_field = [obj.attribute for obj in tradelist_fields if obj.header_value == column_name][0]
         sort_order = int(not self.sortingField[1]) if column_name == self.sortingField[0] else 0
@@ -505,16 +535,16 @@ class JournalApp(QMainWindow):
         self._records = Position.get_positions(self._engine, filters=self.activeFilters, sorting_field=sort_field, sorting_order=sort_order)
         self.updateUIForRecords()
 
-    def changePage(self, page):
+    def changePage(self, page: int) -> None:
         self.currentPage = page - 1
         self.updateUIForRecords()
 
-    def filterPositions(self, filter_field, filter_value):
+    def filterPositions(self, filter_field: str, filter_value: str) -> None:
         self.activeFilters[filter_field] = filter_value
         self._records = Position.get_positions(self._engine, filters=self.activeFilters)
         self.updateUIForRecords()
 
-    def updateTrades(self):
+    def updateTrades(self) -> None:
         with Session(self._engine) as session:
             last_trade = session.scalar(select(Operation).order_by(Operation.time.desc()))
         with Client(self._token) as client:
@@ -522,12 +552,12 @@ class JournalApp(QMainWindow):
         self._records = Position.get_positions(self._engine)
         self.updateUIForRecords()
 
-    def resetFilters(self):
+    def resetFilters(self) -> None:
         self.activeFilters = {}
         self._records = Position.get_positions(self._engine)
         self.initTradeListUI()
     
-    def processNote(self, position, noteWidget, noteSection):
+    def processNote(self, position: Position, noteWidget: QPlainTextEdit, noteSection: QWidget) -> None:
         layout = self.centralWidget().layout()
         layout.removeWidget(noteSection)
         noteSection.setParent(None)
