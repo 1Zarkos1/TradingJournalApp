@@ -7,14 +7,9 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from dotenv import load_dotenv, set_key
-from tinkoff.invest.schemas import MoneyValue
+from tinkoff.invest.schemas import MoneyValue, Account
 from pyqtgraph import QtCore, QtGui
-from PyQt6.QtWidgets import (
-    QWidget,  
-    QPushButton, 
-    QLabel, 
-    QCheckBox
-)
+from PyQt6.QtWidgets import QWidget, QPushButton, QLabel, QCheckBox
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCursor, QPixmap
 
@@ -104,7 +99,7 @@ tradelist_fields: List[Field] = [
 def extract_money_amount(moneyObj: MoneyValue) -> float:
     return round(moneyObj.units + moneyObj.nano*0.000000001, 2)
 
-def assign_class(position, widget):
+def assign_class(position: "Position", widget: QWidget) -> QWidget:
     class_ = "red"
     side = position.side.lower()
     close = position.closing_price
@@ -128,7 +123,9 @@ def convert_timedelta_to_str(time: timedelta) -> str:
     time_str = f"{hours}:{minutes}:{seconds}"
     return days + time_str if time.days else time_str
 
-def get_positions_stats(data):
+def modify_positions_stats(
+        data: List["Position"], closed_only: bool = True, 
+        exclude_outliers: bool = True) -> pd.DataFrame:
     data = [pos.to_dict() for pos in data]
     df = pd.DataFrame(data=data)
     df = df.set_index("id")
@@ -136,7 +133,18 @@ def get_positions_stats(data):
     df["time_in_trade"] = df["close_date"] - df["open_date"]
     df["status"] = df["result"].apply(lambda x: "win" if x > 0 else "loss")
     df["result"] = np.where(df.currency == "usd", df.result*82, df.result)
-    df = df.loc[df["closed"]]
+    if closed_only:
+        df = df.loc[df["closed"]]
+    if exclude_outliers:
+        q_low = df["result"].quantile(0.01)
+        q_hi  = df["result"].quantile(0.99)
+
+        # df = df[(df["result"] > q_low)]
+        df = df[(df["result"] > q_hi) & (df["result"] > q_low)]
+    return df
+
+def get_positions_stats(data: List["Position"]) -> dict:
+    df = modify_positions_stats(data)
 
     group_by_side = (
         df[["side", "result", "ticker", "fee", "result_percent", "status", "time_in_trade"]]
@@ -168,7 +176,7 @@ def get_positions_stats(data):
         group_by_side[section]["average_time_in_trade"] = convert_timedelta_to_str(time)
     return group_by_side
 
-def get_account_info_from_env(name, token):
+def get_account_info_from_env(name: str, token: str) -> dict | None:
     var_prefix = f"{name}_"
     load_dotenv(".env")
     acc_name = os.environ.get(f"{var_prefix}NAME")
@@ -186,13 +194,13 @@ def get_account_info_from_env(name, token):
     else:
         return None
 
-def set_account_info_to_env(account_resp):
+def set_account_info_to_env(account_resp: Account) -> None:
     var_prefix = f"{account_resp.name.upper()}_"
     set_key(".env", f"{var_prefix}ID", account_resp.id)
     set_key(".env", f"{var_prefix}OPEN_DATE", str(account_resp.opened_date.timestamp()))
     set_key(".env", f"{var_prefix}NAME", account_resp.name)
 
-def find_accounts_db_in_system(db_suffix):
+def find_accounts_db_in_system(db_suffix: str) -> List[str]:
     accounts_available = []
     for filename in os.listdir("."):
         if filename.endswith(db_suffix):
