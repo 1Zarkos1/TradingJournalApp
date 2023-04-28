@@ -3,14 +3,14 @@ from typing import List
 from datetime import timezone, datetime, timedelta
 
 from dotenv import load_dotenv
-from sqlalchemy import select
+from sqlalchemy import select, Engine
 from sqlalchemy.orm import Session
 from tinkoff.invest import Client
 from tinkoff.invest.schemas import OperationState, OperationType, Operation as Sdk_Operation
 from tinkoff.invest.exceptions import RequestError
 from grpc import StatusCode
 
-from tables import Base, Asset, Operation, AdditionalPayment, initialize_db, get_engine
+from tables import Asset, Operation, AdditionalPayment, Position
 from utils import extract_money_amount, get_account_info_from_env, set_account_info_to_env
 
 load_dotenv(".env")
@@ -51,7 +51,7 @@ def get_available_accounts(get_online=False) -> dict:
         accounts = accounts | available_accounts
     return accounts
 
-def get_account(available_accounts, account_name: str = ACCOUNT_NAME) -> dict:
+def get_account(available_accounts: dict, account_name: str = ACCOUNT_NAME) -> dict:
     try:
         return available_accounts[account_name]
     except KeyError:
@@ -95,11 +95,11 @@ def get_account_operations(
         key=lambda obj: obj.date
     )
 
-def record_operations(operations_response: List[Sdk_Operation], engine, client) -> None:
-    if not Asset.assets_populated(engine):
-        Asset.populate_assets(client, engine)
-    tickers = Asset.get_figi_to_ticker_mapping(engine)
+def record_operations(operations_response: List[Sdk_Operation], engine: Engine, client: Client) -> None:
     with Session(engine) as session:
+        if not Asset.assets_populated(session):
+            Asset.populate_assets(client, session)
+        tickers = Asset.get_figi_to_ticker_mapping(session)
         last_trade = session.scalar(select(Operation).order_by(Operation.time.desc()))
         last_trade_id = getattr(last_trade, "id", 0)
         for operation in operations_response:
@@ -135,19 +135,20 @@ def record_operations(operations_response: List[Sdk_Operation], engine, client) 
                             id_type=1, 
                             id=operation.figi
                         ).instrument
-                        Asset.populate_assets(client, engine, [asset])
+                        Asset.populate_assets(client, session, [asset])
+                        tickers[asset.figi] = asset.ticker
                         operation.ticker = asset.ticker
                     Operation.add_operation(operation, session)
         session.commit()
 
-def synchronize_operations(client: Client, engine, account_name: str, token: str, last_operation_date: datetime= None) -> None:
+def synchronize_operations(client: Client, engine: Engine, account_name: str, token: str, last_operation_date: datetime = None) -> None:
     with Client(token) as client:
         accounts = get_available_accounts()
         selected_account = get_account(accounts, account_name)
         operations_response = get_account_operations(client, selected_account, last_operation_date)
         record_operations(operations_response, engine, client)
 
-def get_walk_away_analysis_data(engine, token, position):
+def get_walk_away_analysis_data(engine: Engine, token: str, position: Position) -> dict:
     close_date = position.close_date.replace(tzinfo=timezone.utc)
     with Session(engine) as session:
         figi = session.scalar(select(Asset.figi).where(Asset.ticker == position.ticker))
@@ -190,10 +191,10 @@ def get_walk_away_analysis_data(engine, token, position):
                 closing_money_value = candles[-1].close
                 candle_parameters[interval]["price"] = str(extract_money_amount(closing_money_value))
             else:
-                candle_parameters[interval]["price"] = "Not Found"
+                candle_parameters[interval]["price"] = "0"
     return candle_parameters
 
-def get_graph_data(engine, token, position):
+def get_graph_data(engine: Engine, token: str, position: Position) -> List[tuple]:
     open_date = position.open_date.replace(tzinfo=timezone.utc)
     close_date = position.close_date.replace(tzinfo=timezone.utc)
     with Session(engine) as session:
@@ -215,26 +216,3 @@ def get_graph_data(engine, token, position):
             )
         )
     return candle_values
-
-if __name__ == "__main__":
-
-    engine = get_engine(DB_NAME)
-
-    initialize_db(engine, DB_NAME)
-
-    with Client(API_TOKEN) as client:
-        if not Asset.assets_populated(engine):
-            Asset.populate_assets(client, engine)
-        tickers = Asset.get_figi_to_ticker_mapping(engine)
-
-        available_accounts = get_available_accounts(client)
-        selected_account: dict = get_account(available_accounts, ACCOUNT_NAME)
-
-        operations_response = get_account_operations(
-            client, 
-            selected_account,
-            from_date=datetime(2023, 2, 17, 17, tzinfo=timezone.utc),
-            batch_interval=30
-        )
-
-    record_operations(operations_response)
