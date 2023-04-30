@@ -1,12 +1,12 @@
 QMainWindow {
-    background-color: #1d2331;
-    background-color: rgb(18, 23, 33);
+    background-color: #121721;
+    /* background-color: rgb(18, 23, 33); */
     padding: 0px;
     margin: 0px;
 }
 .note-subwindow {
-    background-color: #1d2331;
-    background-color: rgb(18, 23, 33);
+    background-color: #121721;
+    /* background-color: rgb(18, 23, 33); */
     padding: 0px;
     margin: 0px;
 }
@@ -63,7 +63,7 @@ QLabel.side {
     height: 30px;
 }
 .status-label {
-    border: 1px solid black;
+    border: 1px solid #545454;
     background-color: #00b399;
     color: white;
     padding: 1px;
@@ -134,6 +134,20 @@ QLabel.side {
 QCheckBox {
     padding: 0px 10px;
     max-width: 15px;
+}
+QCheckBox::indicator {
+    height: 15px;
+    width: 15px;
+    padding: 0;
+}
+QCheckBox::indicator:unchecked {
+    background-color: rgba(255, 255, 255, 0);
+    border: 1px solid #6b6b6b;
+}
+QCheckBox::indicator:checked {
+    height: 17px;
+    width: 17px;
+    image: url("static/checked.png");
 }
 .position-ui .ticker-label {
     border: none;
