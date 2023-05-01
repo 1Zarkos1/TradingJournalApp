@@ -1,5 +1,6 @@
+import calendar
 import os
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, date
 from dataclasses import dataclass
 from typing import Callable, List
 
@@ -140,8 +141,63 @@ def modify_positions_stats(
         q_hi  = df["result"].quantile(0.99)
 
         # df = df[(df["result"] > q_low)]
-        df = df[(df["result"] > q_hi) & (df["result"] > q_low)]
+        df = df[(df["result"] < q_hi) & (df["result"] > q_low)]
     return df
+
+def get_month_mapping(year: int, month: int) -> List[date]:
+    month_first_weekday, last_day_of_the_month = calendar.monthrange(year, month)
+    month_last_weekday = date(year, month, last_day_of_the_month).weekday()
+    first_day_of_the_first_week = date(year, month, 1) - timedelta(month_first_weekday)
+    last_day_of_the_last_week = date(year, month, last_day_of_the_month) + timedelta(6 - month_last_weekday)
+    first_week_number = first_day_of_the_first_week.isocalendar().week
+
+    current_date = first_day_of_the_first_week
+    calendar_map = []
+    while current_date <= last_day_of_the_last_week:
+        calendar_map.append(current_date)
+        current_date += timedelta(1)
+
+    return calendar_map
+
+def get_calendar_performance(
+        data: List["Position"], year: int = date.today().year, 
+        month: int = date.today().month) -> dict:
+    calendar_days = get_month_mapping(year, month)
+    df = modify_positions_stats(data)
+    df = df.loc[(df["open_date"].dt.month == month) & (df["open_date"].dt.year == year)]
+    daily = (
+        df[["open_date", "result", "ticker"]]
+        .groupby(pd.Grouper(key="open_date", freq="D"), as_index=True)
+        .aggregate(
+            number_of_trades = ("ticker", "count"), 
+            total_result = ("result", "sum")
+        )
+    )
+    weekly = (
+        df[["open_date", "result", "ticker"]]
+        .groupby(pd.Grouper(key="open_date", freq="W"), as_index=True)
+        .aggregate(
+            number_of_trades = ("ticker", "count"), 
+            total_result = ("result", "sum")
+        )
+    )
+    df = pd.concat((daily, weekly))
+    df.index = df.index.date
+    df.number_of_trades = df.number_of_trades.astype(int)
+    df.total_result = df.total_result.round(2)
+    df = df.loc[df["number_of_trades"] != 0]
+    calendar_mapping = {}
+    for day in calendar_days:
+        try:
+            info = df.loc[day]
+            calendar_mapping[day] = {
+                "trades": info.number_of_trades,
+                "result": info.total_result
+            }
+        except KeyError:
+            calendar_mapping[day] = {}
+    
+    return calendar_mapping
 
 def get_positions_stats(data: List["Position"]) -> dict:
     df = modify_positions_stats(data)

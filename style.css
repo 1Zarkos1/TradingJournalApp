@@ -96,7 +96,7 @@ QLabel.side {
 .filter-container QPushButton {
     border: none;
 }
-.buttons-section QPushButton {
+.buttons-section QPushButton, .calendar-ui QPushButton {
     color: #e4e7ea;
     background-color: #009792;
     border-radius: 3px;
@@ -125,10 +125,10 @@ QLabel.side {
 .stats-section-data {
     padding: 0;
 }
-.tradelist-field.green {
+.tradelist-field.green, .calendar-cell .green {
     color: green;
 }
-.tradelist-field.red {
+.tradelist-field.red, .calendar-cell .red {
     color: red;
 }
 QCheckBox {
@@ -151,4 +151,25 @@ QCheckBox::indicator:checked {
 }
 .position-ui .ticker-label {
     border: none;
+}
+.calendar-cell {
+    background-color: #2b2d3d;
+    border-radius: 5px;
+    color: #c4c4c4;
+}
+.calendar-cell QLabel {
+    color: #c4c4c4;
+}
+.calendar-ui .date-selection QLabel {
+    color: #c4c4c4;
+    font-weight: 700;
+    font-size: 16px;
+    text-transform: uppercase;
+}
+.date-selection QPushButton {
+    width: 25%;
+    border-radius: 50%;
+}
+.calendar-cell {
+    min-height: 75px;
 }

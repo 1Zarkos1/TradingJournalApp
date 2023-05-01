@@ -2,8 +2,9 @@ import sys
 import math
 import ctypes
 import time
+import calendar
 from functools import partial
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import List, Callable
 
 from PyQt6.QtWidgets import (
@@ -44,7 +45,8 @@ from utils import (
     assign_class, 
     tradelist_fields, 
     CandlestickItem, 
-    modify_positions_stats
+    modify_positions_stats,
+    get_calendar_performance
 )
 
 
@@ -143,7 +145,8 @@ class JournalApp(QMainWindow):
 
         self.setCentralWidget(central)
 
-    def drawTopMenuButtons(self, layout: QVBoxLayout, returnBtn: bool = False) -> None:
+    def drawTopMenuButtons(self, layout: QVBoxLayout, returnBtn: bool = False, 
+                           calendarBtn: bool = True) -> None:
         self.topMenuButtonsWidget = QWidget()
         buttonsLayout = QHBoxLayout()
         buttonsLayout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -155,14 +158,93 @@ class JournalApp(QMainWindow):
         syncTrades.clicked.connect(self.updateTrades)
         buttonsLayout.addWidget(accountChange)
         buttonsLayout.addWidget(syncTrades)
-        switchToChart = QPushButton("Chart")
-        switchToChart.clicked.connect(self.drawGraphPage)
-        buttonsLayout.addWidget(switchToChart)
+        # switchToChart = QPushButton("Chart")
+        # switchToChart.clicked.connect(self.drawGraphPage)
+        # buttonsLayout.addWidget(switchToChart)
+        if calendar:
+            calendarSwitch = QPushButton("Calendar view")
+            calendarSwitch.clicked.connect(self.drawCalendarUI)
+            buttonsLayout.addWidget(calendarSwitch)
         if returnBtn:
             returnBtn = QPushButton("return")
             returnBtn.clicked.connect(self.initTradeListUI)
             buttonsLayout.addWidget(returnBtn)
         layout.addWidget(self.topMenuButtonsWidget)
+
+    def drawCalendarUI(self, *args, year = date.today().year, month = date.today().month) -> None:
+        print(year, month)
+        widget = QWidget()
+        layout = QVBoxLayout()
+        widget.setLayout(layout)
+        widget.setProperty("class", "calendar-ui")
+        self.setCentralWidget(widget)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.drawTopMenuButtons(layout, returnBtn=True, calendarBtn=False)
+        perf = get_calendar_performance(self.selectedPositions or self._records, year, month)
+        self.drawCalendarTable(layout, perf, year, month)
+
+    def drawCalendarTable(self, mLayout: QVBoxLayout, performance, year, month):
+        widget = QWidget()
+        layout = QGridLayout()
+        widget.setLayout(layout)
+        header_labels = list(calendar.day_name)
+        header_labels.append("weekly")
+        dateSelection = self.constructCalendarSelectionDate(year, month)
+        layout.addWidget(dateSelection, 0, 0, 1, 8)
+        for col_n, day_name in enumerate(header_labels):
+            header_column = QLabel(day_name.upper())
+            header_column.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            header_column.setProperty("class", "header-label")
+            layout.addWidget(header_column, 1, col_n)
+        row_n = 2
+        col_n = 0
+        for n, (day, values) in enumerate(performance.items()):
+            if col_n == 6:
+                row_n += 1
+            col_n = n - ((row_n - 2) * 7)
+            if col_n == 6:
+                cell = self.constructCalendarCell("", values)
+                layout.addWidget(cell, row_n, 7)
+                values = {}
+            cell = self.constructCalendarCell(day, values)
+            layout.addWidget(cell, row_n, col_n)
+
+        mLayout.addWidget(widget)
+
+    def constructCalendarSelectionDate(self, year, month):
+        monthName = list(calendar.month_name)[month]
+        header = QLabel(f"{monthName} {year}")
+        backBtn = QPushButton(QIcon("static/left-arrow.png"), "")
+        backBtn.clicked.connect(lambda x: self.changeCalendarDate(year, month, -1))
+        forwardBtn = QPushButton(QIcon("static/right-arrow.png"), "")
+        forwardBtn.clicked.connect(lambda x: self.changeCalendarDate(year, month, 1))
+        widget = QWidget()
+        widget.setProperty("class", "date-selection")
+        layout = QHBoxLayout()
+        widget.setLayout(layout)
+        layout.addWidget(backBtn, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(header, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(forwardBtn, alignment=Qt.AlignmentFlag.AlignRight)
+
+        return widget
+
+    def constructCalendarCell(self, day: date, values):
+        widget = QWidget()
+        widget.setProperty("class", "calendar-cell")
+        layout = QVBoxLayout()
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        widget.setLayout(layout)
+        layout.addWidget(QLabel(f"{day.day if day else ''}"), alignment=Qt.AlignmentFlag.AlignHCenter)
+        if values:
+            result = QLabel(f"$ {values['result']}")
+            result.setProperty("class", "green" if values["result"] > 0 else "red")
+            layout.addWidget(result, alignment=Qt.AlignmentFlag.AlignHCenter)
+            layout.addWidget(QLabel(f"{int(values['trades'])} Trades"), alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        return widget
 
     def drawTradeListTable(self, update: bool = False) -> None:
         if update:
@@ -570,6 +652,10 @@ class JournalApp(QMainWindow):
                 session.commit()
                 session.refresh(position)
             self.drawNoteSection(layout, position, add_update=False)
+
+    def changeCalendarDate(self, year, month, value):
+        newDate = date(year, month, 15) + timedelta(weeks=4*value)
+        self.drawCalendarUI(year=newDate.year, month=newDate.month)
 
 
 app = QApplication(sys.argv)
