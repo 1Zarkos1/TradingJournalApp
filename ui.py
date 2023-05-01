@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QCompleter,
     QComboBox,
     QDateTimeEdit,
+    QScrollArea
 )
 from PyQt6.QtCore import Qt, QEvent, QObject
 from PyQt6.QtGui import QFont, QMouseEvent, QIcon
@@ -133,6 +134,7 @@ class JournalApp(QMainWindow):
     def initTradeListUI(self) -> None:
         central = QWidget(self)
         self.tradeListLayout = QVBoxLayout()
+        self.tradeListLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.tradeListLayout.setSpacing(0)
         central.setProperty("class", "centra-tradelist")
         central.setLayout(self.tradeListLayout)
@@ -161,7 +163,7 @@ class JournalApp(QMainWindow):
         # switchToChart = QPushButton("Chart")
         # switchToChart.clicked.connect(self.drawGraphPage)
         # buttonsLayout.addWidget(switchToChart)
-        if calendar:
+        if calendarBtn:
             calendarSwitch = QPushButton("Calendar view")
             calendarSwitch.clicked.connect(self.drawCalendarUI)
             buttonsLayout.addWidget(calendarSwitch)
@@ -175,6 +177,7 @@ class JournalApp(QMainWindow):
         print(year, month)
         widget = QWidget()
         layout = QVBoxLayout()
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         widget.setLayout(layout)
         widget.setProperty("class", "calendar-ui")
         self.setCentralWidget(widget)
@@ -249,10 +252,18 @@ class JournalApp(QMainWindow):
     def drawTradeListTable(self, update: bool = False) -> None:
         if update:
             currentTableWidget = self.tradeListTableWidget
-        self.tradeListTableWidget = QWidget()
+        widget = QWidget()
+        widget.setProperty("class", "tl-try")
         layout = QGridLayout()
         layout.setSpacing(0)
-        self.tradeListTableWidget.setLayout(layout)
+        layout.setContentsMargins(0, 0, 0, 0)
+        widget.setLayout(layout)
+
+        self.tradeListTableWidget = QScrollArea()
+        self.tradeListTableWidget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # scroll.setContentsMargins(0, 0, 0, 0)
+        self.tradeListTableWidget.setWidget(widget)
+        self.tradeListTableWidget.setWidgetResizable(True)
 
         self.drawTradeListTableHeader(layout)
         self.drawTradeListTableBody(layout)
@@ -262,6 +273,7 @@ class JournalApp(QMainWindow):
             self.tradeListLayout.removeWidget(currentTableWidget)
         else:
             self.tradeListLayout.addWidget(self.tradeListTableWidget)
+            # self.tradeListLayout.addWidget(scroll)
 
     def drawTradeListTableHeader(self, layout: QGridLayout) -> None:
         currentPageRecords = self._records[self.currentPage*PAGE_SIZE:self.currentPage*PAGE_SIZE+PAGE_SIZE]

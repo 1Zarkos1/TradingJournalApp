@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from sqlalchemy import select, Engine
 from sqlalchemy.orm import Session
 from tinkoff.invest import Client
-from tinkoff.invest.schemas import OperationState, OperationType, Operation as Sdk_Operation
+from tinkoff.invest.schemas import OperationState, OperationType, Operation as Sdk_Operation, CandleInterval
 from tinkoff.invest.exceptions import RequestError
 from grpc import StatusCode
 
@@ -195,18 +195,25 @@ def get_walk_away_analysis_data(engine: Engine, token: str, position: Position) 
     return candle_parameters
 
 def get_graph_data(engine: Engine, token: str, position: Position) -> List[tuple]:
-    open_date = position.open_date.replace(tzinfo=timezone.utc)
-    close_date = position.close_date.replace(tzinfo=timezone.utc)
+    trade_time_padding = timedelta(seconds=3600)
+    from_ = position.open_date.replace(tzinfo=timezone.utc) - trade_time_padding
+    to = position.close_date.replace(tzinfo=timezone.utc) + trade_time_padding
     with Session(engine) as session:
         figi = session.scalar(select(Asset.figi).where(Asset.ticker == position.ticker))
-    interval = 2
-    from_ = open_date - timedelta(seconds=3600)
-    to = close_date + timedelta(seconds=3600)
+    interval = CandleInterval.CANDLE_INTERVAL_5_MIN
+    candles = []
     with Client(token) as client:
-        candles = client.market_data.get_candles(figi=figi, from_=from_, to=to, interval=interval).candles
-    candle_values = []
-    for candle in candles:
-        candle_values.append(
+        if to - from_ > timedelta(days=1):
+            batch_to = from_ + timedelta(days=1)
+            while batch_to < to:
+                candles.extend(
+                    client.market_data.get_candles(figi=figi, from_=from_, to=batch_to, interval=interval).candles
+                )
+                from_, batch_to = batch_to, batch_to + timedelta(days=1)
+        candles.extend(
+            client.market_data.get_candles(figi=figi, from_=from_, to=to, interval=interval).candles
+        )
+    candle_values = [
             (
                 candle.time.timestamp(),
                 extract_money_amount(candle.open),
@@ -214,5 +221,6 @@ def get_graph_data(engine: Engine, token: str, position: Position) -> List[tuple
                 extract_money_amount(candle.low),
                 extract_money_amount(candle.high)
             )
-        )
+            for candle in candles
+    ]
     return candle_values

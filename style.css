@@ -173,3 +173,13 @@ QCheckBox::indicator:checked {
 .calendar-cell {
     min-height: 75px;
 }
+QScrollArea {
+    padding: 0;
+}
+QScrollArea {
+    border: 1px solid #545454;
+}
+.tl-try {
+    background: red;
+    padding: 0;
+}
