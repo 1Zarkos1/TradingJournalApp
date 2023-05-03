@@ -1,16 +1,16 @@
 import os
-from typing import List
+from typing import List, Dict
 from datetime import timezone, datetime, timedelta
 
 from dotenv import load_dotenv
-from sqlalchemy import select, Engine
+from sqlalchemy import select, Engine, inspect
 from sqlalchemy.orm import Session
 from tinkoff.invest import Client
 from tinkoff.invest.schemas import OperationState, OperationType, Operation as Sdk_Operation, CandleInterval
 from tinkoff.invest.exceptions import RequestError
 from grpc import StatusCode
 
-from tables import Asset, Operation, AdditionalPayment, Position
+from tables import Asset, Operation, AdditionalPayment, Position, ChartData, WalkAwayData
 from utils import extract_money_amount, get_account_info_from_env, set_account_info_to_env
 
 load_dotenv(".env")
@@ -148,53 +148,72 @@ def synchronize_operations(client: Client, engine: Engine, account_name: str, to
         operations_response = get_account_operations(client, selected_account, last_operation_date)
         record_operations(operations_response, engine, client)
 
-def get_walk_away_analysis_data(engine: Engine, token: str, position: Position) -> dict:
-    close_date = position.close_date.replace(tzinfo=timezone.utc)
+def get_waa_data_from_db(engine: Engine, position: Position) -> dict:
     with Session(engine) as session:
-        figi = session.scalar(select(Asset.figi).where(Asset.ticker == position.ticker))
-    candle_parameters = {
-        "5min": {
-            "candle_range": 2, 
-            "from": timedelta(seconds=0),
-            "to": timedelta(seconds=300)
-        },
-        "1hour": {
-            "candle_range": 2, 
-            "from": (+timedelta(seconds=3600)-timedelta(seconds=300)),
-            "to": timedelta(seconds=3600)
-        },
-        "day": {
-            "candle_range": 5, 
-            "from": -timedelta(days=1),
-            "to": timedelta(0)
-        },
-        "2day": {
-            "candle_range": 5, 
-            "from": timedelta(1),
-            "to": timedelta(2)
-        },
-        "week": {
-            "candle_range": 5, 
-            "from": timedelta(6),
-            "to": timedelta(7)
-        }
-    }
-    with Client(token) as client:
-        for interval, values in candle_parameters.items():
-            candles = client.market_data.get_candles(
-                figi = figi,
-                from_ = close_date + values.get("from"),
-                to = close_date + values.get("to"),
-                interval = values.get("candle_range")
-            ).candles
-            if candles:
-                closing_money_value = candles[-1].close
-                candle_parameters[interval]["price"] = str(extract_money_amount(closing_money_value))
-            else:
-                candle_parameters[interval]["price"] = "0"
-    return candle_parameters
+        data: WalkAwayData = session.scalar(select(WalkAwayData).where(WalkAwayData.position == position))
+    if data:
+        data = data.history_data
+    return data
 
-def get_graph_data(engine: Engine, token: str, position: Position) -> List[tuple]:
+
+def get_walk_away_analysis_data(engine: Engine, token: str, position: Position) -> dict:
+    price_history = get_waa_data_from_db(engine, position)
+    if not price_history:
+        close_date = position.close_date.replace(tzinfo=timezone.utc)
+        with Session(engine) as session:
+            figi = session.scalar(select(Asset.figi).where(Asset.ticker == position.ticker))
+        candle_parameters = {
+            "5min": {
+                "candle_range": 2, 
+                "from": timedelta(seconds=0),
+                "to": timedelta(seconds=300)
+            },
+            "1hour": {
+                "candle_range": 2, 
+                "from": (+timedelta(seconds=3600)-timedelta(seconds=300)),
+                "to": timedelta(seconds=3600)
+            },
+            "day": {
+                "candle_range": 5, 
+                "from": -timedelta(days=1),
+                "to": timedelta(0)
+            },
+            "2day": {
+                "candle_range": 5, 
+                "from": timedelta(1),
+                "to": timedelta(2)
+            },
+            "week": {
+                "candle_range": 5, 
+                "from": timedelta(6),
+                "to": timedelta(7)
+            }
+        }
+        price_history = {}
+        with Client(token) as client:
+            for interval, values in candle_parameters.items():
+                candles = client.market_data.get_candles(
+                    figi = figi,
+                    from_ = close_date + values.get("from"),
+                    to = close_date + values.get("to"),
+                    interval = values.get("candle_range")
+                ).candles
+                if candles:
+                    closing_money_value = extract_money_amount(candles[-1].close)
+                    price_history[interval] = closing_money_value
+                else:
+                    price_history[interval] = "0"
+            with Session(engine, expire_on_commit=False) as session:
+                walk_away_obj = WalkAwayData(
+                    position=position,
+                    ticker=position.ticker,
+                    history_data=price_history
+                )
+                session.add(walk_away_obj)
+                session.commit()
+    return price_history
+
+def get_chart_data_from_api(engine: Engine, token: str, position: Position) -> Dict[datetime, Dict[str, float]]:
     trade_time_padding = timedelta(seconds=3600)
     from_ = position.open_date.replace(tzinfo=timezone.utc) - trade_time_padding
     to = position.close_date.replace(tzinfo=timezone.utc) + trade_time_padding
@@ -213,14 +232,32 @@ def get_graph_data(engine: Engine, token: str, position: Position) -> List[tuple
         candles.extend(
             client.market_data.get_candles(figi=figi, from_=from_, to=to, interval=interval).candles
         )
-    candle_values = [
-            (
-                candle.time.timestamp(),
-                extract_money_amount(candle.open),
-                extract_money_amount(candle.close),
-                extract_money_amount(candle.low),
-                extract_money_amount(candle.high)
-            )
+    candle_values = {
+            candle.time.timestamp(): {
+                "open": extract_money_amount(candle.open),
+                "close": extract_money_amount(candle.close),
+                "high": extract_money_amount(candle.high),
+                "low": extract_money_amount(candle.low)
+            }
             for candle in candles
-    ]
+    }
     return candle_values
+
+def get_chart_data(engine: Engine, token: str, position: Position) -> List[tuple]:
+    with Session(engine) as session:
+        data = session.scalar(select(ChartData).where(ChartData.position == position))
+    if data:
+        candles = {float(timestamp): values for timestamp, values in data.candles.items()}
+    else:
+        candles = get_chart_data_from_api(engine, token, position)
+        chart_data = ChartData(
+            position=position,
+            ticker=position.ticker,
+            candle_interval=timedelta(seconds=300),
+            candles=candles
+        )
+        with Session(engine, expire_on_commit=False) as session:
+            session.add(chart_data)
+            session.commit()
+    return candles
+        

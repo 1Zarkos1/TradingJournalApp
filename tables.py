@@ -1,11 +1,20 @@
 import os
 import csv
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, ForeignKey, Engine, select, inspect, and_
+from sqlalchemy import (
+    create_engine, 
+    ForeignKey, 
+    Engine, 
+    select, 
+    inspect, 
+    and_, 
+    JSON,
+    Interval
+)
 from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql import functions
@@ -187,8 +196,10 @@ class Position(Base):
     closed: Mapped[bool] = mapped_column(default=0)
     currency: Mapped[str]
     fee: Mapped[float] = mapped_column(default=0)
-    operations: Mapped[List["Operation"]] = relationship(back_populates="position", lazy="subquery")
+    operations: Mapped[List["Operation"]] = relationship(back_populates="position", lazy="selectin", cascade="all, delete-orphan")
     result: Mapped[float] = mapped_column(default=0)
+    chart: Mapped["ChartData"] = relationship(back_populates="position", cascade="all, delete-orphan")
+    walkaway: Mapped["WalkAwayData"] = relationship(back_populates="position", cascade="all, delete-orphan")
     note: Mapped[str] = mapped_column(nullable=True)
 
     @hybrid_property
@@ -352,3 +363,28 @@ class AdditionalPayment(Base):
 
     def __repr__(self) -> str:
         return f"Payment<description={self.description}, ticker={self.ticker}, value={self.payment}>"
+    
+
+class ChartData(Base):
+    __tablename__ = "chart_data"
+
+    id: Mapped[int] = mapped_column(ForeignKey("position.id"), primary_key=True, nullable=False)
+    position: Mapped["Position"] = relationship(back_populates="chart")
+    ticker: Mapped[str] = mapped_column(ForeignKey("asset.ticker"), nullable=False)
+    candle_interval: Mapped[timedelta]
+    candles = mapped_column(JSON)
+
+    def __repr__(self) -> str:
+        return f"ChartData<ticker={self.ticker}, interval={self.candle_interval}>"
+
+
+class WalkAwayData(Base):
+    __tablename__ = "walk_away_data"
+
+    id: Mapped[int] = mapped_column(ForeignKey("position.id"), primary_key=True, nullable=False)
+    position: Mapped["Position"] = relationship(back_populates="walkaway")
+    ticker: Mapped[str] = mapped_column(ForeignKey("asset.ticker"), nullable=False)
+    history_data = mapped_column(JSON)
+
+    def __repr__(self) -> str:
+        return f"WalkAwayData<id={self.id}, ticker={self.ticker}, interval={self.candle_interval}>"
