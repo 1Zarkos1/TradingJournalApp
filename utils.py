@@ -278,14 +278,20 @@ class CandlestickItem(pg.GraphicsObject):
         self.picture = QtGui.QPicture()
         p = QtGui.QPainter(self.picture)
         p.setPen(pg.mkPen('w'))
-        w = (self.data[1][0] - self.data[0][0]) / 3.
-        for (t, open, close, min, max) in self.data:
-            p.drawLine(QtCore.QPointF(t, min), QtCore.QPointF(t, max))
-            if open > close:
-                p.setBrush(pg.mkBrush('r'))
-            else:
-                p.setBrush(pg.mkBrush('g'))
-            p.drawRect(QtCore.QRectF(t-w, open, w*2, close-open))
+        times = list(self.data.keys())
+        candleHalfWidth = (times[1] - times[0]) / 3.
+        for timestamp, prices in self.data.items():
+            p.drawLine(
+                QtCore.QPointF(timestamp, prices["low"]), 
+                QtCore.QPointF(timestamp, prices["high"])
+            )
+            p.setBrush(pg.mkBrush('r' if prices["open"] > prices["close"] else 'g'))
+            p.drawRect(
+                QtCore.QRectF(
+                    timestamp - candleHalfWidth, prices["open"], 
+                    candleHalfWidth*2, prices["close"]-prices["open"]
+                )
+            )
         p.end()
     
     def paint(self, p, *args):
