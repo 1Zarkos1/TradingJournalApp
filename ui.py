@@ -4,7 +4,7 @@ import ctypes
 import time
 import calendar
 from functools import partial
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import List, Callable
 
 from PyQt6.QtWidgets import (
@@ -38,7 +38,7 @@ from main import (
     Client, 
     synchronize_operations, 
     get_walk_away_analysis_data, 
-    get_graph_data
+    get_chart_data
 )
 from tables import Position, Operation, get_engine, initialize_db
 from utils import (
@@ -256,6 +256,7 @@ class JournalApp(QMainWindow):
         widget.setProperty("class", "tl-try")
         layout = QGridLayout()
         layout.setSpacing(0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.setContentsMargins(0, 0, 0, 0)
         widget.setLayout(layout)
 
@@ -426,28 +427,46 @@ class JournalApp(QMainWindow):
         self.drawWalkAwaySection(layout, position, self._engine, self._token)
         # draw notes section
         self.drawNoteSection(layout, position)
+
+        delBtn = QPushButton("Delete position")
+        delBtn.setProperty("class", "btn-warning")
+        delBtn.clicked.connect(partial(self.deletePosition, position))
+        layout.addWidget(delBtn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+    def deletePosition(self, position):
+        self._records.remove(position)
+        with Session(self._engine, expire_on_commit=False) as session:
+            session.delete(position)
+            session.commit()
+        self.initTradeListUI()
         
     def drawPositionChart(self, layout: QVBoxLayout, position: Position) -> None:
-        data = get_graph_data(self._engine, self._token, position)
+        data = get_chart_data(self._engine, self._token, position)
         item = CandlestickItem(data)
         w = pg.PlotWidget()
         w.addItem(item)
-        t1= pg.TargetItem()
-        from datetime import timezone
-        d = position.close_date.replace(tzinfo=timezone.utc).timestamp()
-        t2= pg.TargetItem(
-            pos=(d, position.closing_price),
-            pen="#F4511E",
-            label="{1:0.2f}"
+        open_ = position.open_date.replace(tzinfo=timezone.utc).timestamp()
+        close = position.close_date.replace(tzinfo=timezone.utc).timestamp()
+        targetLabelArgs = {
+            "pen": "#00ffda",
+            "label": "{1:0.2f}",
+            "labelOpts": {"offset": (5, 0), "color": "#fff"}
+        }
+        openPriceTarget = pg.TargetItem(
+            pos=(open_, position.open_price),
+            **targetLabelArgs
         )
-        w.addItem(t1)
-        w.addItem(t2)
+        closePriceTarget = pg.TargetItem(
+            pos=(close, position.closing_price),
+            **targetLabelArgs
+        )
+        w.addItem(openPriceTarget)
+        w.addItem(closePriceTarget)
         layout.addWidget(w)
 
     def drawWalkAwaySection(self, layout: QVBoxLayout, position: Position, engine: "Engine", token: str) -> None:
-        response = get_walk_away_analysis_data(engine, token, position)
-        data = [{field: values["price"] for field, values in response.items()}]
-        table = self.drawTableWidget(data, partial(assign_class, position))
+        price_history = get_walk_away_analysis_data(engine, token, position)
+        table = self.drawTableWidget([price_history], partial(assign_class, position))
         layout.addWidget(table)
 
     def drawPositionSummary(self, layout: QVBoxLayout, position: Position) -> None:
