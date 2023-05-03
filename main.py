@@ -102,6 +102,7 @@ def record_operations(operations_response: List[Sdk_Operation], engine: Engine, 
         tickers = Asset.get_figi_to_ticker_mapping(session)
         last_trade = session.scalar(select(Operation).order_by(Operation.time.desc()))
         last_trade_id = getattr(last_trade, "id", 0)
+        operations_count = 0
         for operation in operations_response:
             # process only executed operations
             if operation.state == EXECUTED_OPERATION:
@@ -139,14 +140,16 @@ def record_operations(operations_response: List[Sdk_Operation], engine: Engine, 
                         tickers[asset.figi] = asset.ticker
                         operation.ticker = asset.ticker
                     Operation.add_operation(operation, session)
+                    operations_count += 1
         session.commit()
+        return operations_count
 
 def synchronize_operations(client: Client, engine: Engine, account_name: str, token: str, last_operation_date: datetime = None) -> None:
     with Client(token) as client:
         accounts = get_available_accounts()
         selected_account = get_account(accounts, account_name)
         operations_response = get_account_operations(client, selected_account, last_operation_date)
-        record_operations(operations_response, engine, client)
+        return record_operations(operations_response, engine, client)
 
 def get_waa_data_from_db(engine: Engine, position: Position) -> dict:
     with Session(engine) as session:

@@ -22,7 +22,8 @@ from PyQt6.QtWidgets import (
     QCompleter,
     QComboBox,
     QDateTimeEdit,
-    QScrollArea
+    QScrollArea,
+    QMessageBox
 )
 from PyQt6.QtCore import Qt, QEvent, QObject
 from PyQt6.QtGui import QFont, QMouseEvent, QIcon
@@ -418,7 +419,7 @@ class JournalApp(QMainWindow):
         self.drawTopMenuButtons(layout, returnBtn=True)
 
         # draw chart
-        self.drawPositionChart(layout, position)
+        # self.drawPositionChart(layout, position)
         # draw trade summary info
         self.drawPositionSummary(layout, position)
         # draw executions summary
@@ -432,13 +433,6 @@ class JournalApp(QMainWindow):
         delBtn.setProperty("class", "btn-warning")
         delBtn.clicked.connect(partial(self.deletePosition, position))
         layout.addWidget(delBtn, alignment=Qt.AlignmentFlag.AlignCenter)
-
-    def deletePosition(self, position):
-        self._records.remove(position)
-        with Session(self._engine, expire_on_commit=False) as session:
-            session.delete(position)
-            session.commit()
-        self.initTradeListUI()
         
     def drawPositionChart(self, layout: QVBoxLayout, position: Position) -> None:
         data = get_chart_data(self._engine, self._token, position)
@@ -585,7 +579,6 @@ class JournalApp(QMainWindow):
         pItem.plot(df["close_date"].astype('int64') // 10**9, df["result"].cumsum())
         layout.addWidget(w)
 
-
     def _update_canvas(self):
         t = np.linspace(0, 10, 101)
         # Shift the sinusoid as a function of time.
@@ -661,7 +654,12 @@ class JournalApp(QMainWindow):
         with Session(self._engine) as session:
             last_trade = session.scalar(select(Operation).order_by(Operation.time.desc()))
         with Client(self._token) as client:
-            synchronize_operations(client, self._engine, self.account, self._token, last_trade and last_trade.time)
+            operations_number = synchronize_operations(client, self._engine, self.account, self._token, last_trade and last_trade.time)
+        msg = QMessageBox(QMessageBox.Icon.Information, "Syncronization complete",
+                          f"Number of new recorded operations: {operations_number}",
+                          QMessageBox.StandardButton.Ok)
+        msg.show()
+        msg.exec()
         self._records = Position.get_positions(self._engine)
         self.updateUIForRecords()
 
@@ -683,6 +681,18 @@ class JournalApp(QMainWindow):
                 session.commit()
                 session.refresh(position)
             self.drawNoteSection(layout, position, add_update=False)
+
+    def deletePosition(self, position):
+        # confirmation = QMessageBox(QMessageBox.Icon.Question, "Delete?", "Are you sure you want to delete this position?", 
+        #                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        # confirmation.show()
+        # confirmation.exec()
+        # if confirmation == QMessageBox.StandardButton.Yes:
+        self._records.remove(position)
+        with Session(self._engine, expire_on_commit=False) as session:
+            session.delete(position)
+            session.commit()
+        self.initTradeListUI()
 
     def changeCalendarDate(self, year, month, value):
         newDate = date(year, month, 15) + timedelta(weeks=4*value)
