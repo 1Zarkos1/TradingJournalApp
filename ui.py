@@ -23,7 +23,8 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDateTimeEdit,
     QScrollArea,
-    QMessageBox
+    QMessageBox,
+    QSizePolicy
 )
 from PyQt6.QtCore import Qt, QEvent, QObject
 from PyQt6.QtGui import QFont, QMouseEvent, QIcon
@@ -149,7 +150,7 @@ class JournalApp(QMainWindow):
         self.setCentralWidget(central)
 
     def drawTopMenuButtons(self, layout: QVBoxLayout, returnBtn: bool = False, 
-                           calendarBtn: bool = True) -> None:
+                           calendarBtn: bool = True, calendarPeriod: str = "Month") -> None:
         self.topMenuButtonsWidget = QWidget()
         buttonsLayout = QHBoxLayout()
         buttonsLayout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -165,17 +166,20 @@ class JournalApp(QMainWindow):
         # switchToChart.clicked.connect(self.drawGraphPage)
         # buttonsLayout.addWidget(switchToChart)
         if calendarBtn:
-            calendarSwitch = QPushButton("Calendar view")
-            calendarSwitch.clicked.connect(self.drawCalendarUI)
+            calendarSwitch = QPushButton(f"{calendarPeriod} calendar view")
+            if calendarPeriod == "Month":
+                calendarSwitch.clicked.connect(self.drawCalendarUI)
+            else:
+                calendarSwitch.clicked.connect(partial(self.drawCalendarUI, month=0))
             buttonsLayout.addWidget(calendarSwitch)
         if returnBtn:
             returnBtn = QPushButton("return")
             returnBtn.clicked.connect(self.initTradeListUI)
             buttonsLayout.addWidget(returnBtn)
         layout.addWidget(self.topMenuButtonsWidget)
+    self.drawCalendarTable(layout, perf, year, month)
 
     def drawCalendarUI(self, *args, year = date.today().year, month = date.today().month) -> None:
-        print(year, month)
         widget = QWidget()
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -184,7 +188,8 @@ class JournalApp(QMainWindow):
         self.setCentralWidget(widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self.drawTopMenuButtons(layout, returnBtn=True, calendarBtn=False)
+        self.drawTopMenuButtons(layout, returnBtn=True, calendarBtn=True, 
+                                calendarPeriod=("Month" if month == 0 else "Year"))
         perf = get_calendar_performance(self.selectedPositions or self._records, year, month)
         self.drawCalendarTable(layout, perf, year, month)
 
@@ -192,33 +197,37 @@ class JournalApp(QMainWindow):
         widget = QWidget()
         layout = QGridLayout()
         widget.setLayout(layout)
-        header_labels = list(calendar.day_name)
-        header_labels.append("weekly")
+        if month:
+            header_labels = list(calendar.day_name)
+            # header_labels.append("weekly")
+        else:
+            header_labels = ""
         dateSelection = self.constructCalendarSelectionDate(year, month)
-        layout.addWidget(dateSelection, 0, 0, 1, 8)
+        layout.addWidget(dateSelection, 0, 0, 1, len(header_labels) or 3)
         for col_n, day_name in enumerate(header_labels):
             header_column = QLabel(day_name.upper())
             header_column.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             header_column.setProperty("class", "header-label")
             layout.addWidget(header_column, 1, col_n)
+        columns = len(header_labels) or 3 
         row_n = 2
         col_n = 0
         for n, (day, values) in enumerate(performance.items()):
-            if col_n == 6:
+            if col_n == columns-1:
                 row_n += 1
-            col_n = n - ((row_n - 2) * 7)
-            if col_n == 6:
-                cell = self.constructCalendarCell("", values)
-                layout.addWidget(cell, row_n, 7)
-                values = {}
-            cell = self.constructCalendarCell(day, values)
+            col_n = n - ((row_n - 2) * (columns))
+            # if col_n == columns - 2:
+            #     cell = self.constructCalendarCell("", values)
+            #     layout.addWidget(cell, row_n, columns - 1)
+            #     values = {}
+            cell = self.constructCalendarCell(day.day if month else list(calendar.month_name)[n+1], values)
             layout.addWidget(cell, row_n, col_n)
 
         mLayout.addWidget(widget)
 
     def constructCalendarSelectionDate(self, year, month):
         monthName = list(calendar.month_name)[month]
-        header = QLabel(f"{monthName} {year}")
+        header = QLabel(f"{monthName + ' ' if monthName else ''}{year}")
         backBtn = QPushButton(QIcon("static/left-arrow.png"), "")
         backBtn.clicked.connect(lambda x: self.changeCalendarDate(year, month, -1))
         forwardBtn = QPushButton(QIcon("static/right-arrow.png"), "")
@@ -233,7 +242,7 @@ class JournalApp(QMainWindow):
 
         return widget
 
-    def constructCalendarCell(self, day: date, values):
+    def constructCalendarCell(self, cellHeader, values):
         widget = QWidget()
         widget.setProperty("class", "calendar-cell")
         layout = QVBoxLayout()
@@ -241,7 +250,7 @@ class JournalApp(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         widget.setLayout(layout)
-        layout.addWidget(QLabel(f"{day.day if day else ''}"), alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(QLabel(f"{cellHeader}"), alignment=Qt.AlignmentFlag.AlignHCenter)
         if values:
             result = QLabel(f"$ {values['result']}")
             result.setProperty("class", "green" if values["result"] > 0 else "red")
@@ -413,13 +422,20 @@ class JournalApp(QMainWindow):
         layout = QVBoxLayout()
         widget.setLayout(layout)
         widget.setProperty("class", "position-ui")
+
+        # scroll = QScrollArea()
+        # scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # scroll.setWidget(widget)
+        # scroll.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        # scroll.setWidgetResizable(True)
+
         self.setCentralWidget(widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.drawTopMenuButtons(layout, returnBtn=True)
 
         # draw chart
-        # self.drawPositionChart(layout, position)
+        self.drawPositionChart(layout, position)
         # draw trade summary info
         self.drawPositionSummary(layout, position)
         # draw executions summary
@@ -695,8 +711,11 @@ class JournalApp(QMainWindow):
         self.initTradeListUI()
 
     def changeCalendarDate(self, year, month, value):
-        newDate = date(year, month, 15) + timedelta(weeks=4*value)
-        self.drawCalendarUI(year=newDate.year, month=newDate.month)
+        if month != 0:
+            newDate = date(year, month, 15) + timedelta(weeks=4*value)
+            self.drawCalendarUI(year=newDate.year, month=newDate.month)
+        else:
+            self.drawCalendarUI(year=year+value, month=0)
 
 
 app = QApplication(sys.argv)
