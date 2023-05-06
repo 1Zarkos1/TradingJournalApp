@@ -181,6 +181,22 @@ def group_df_by_frequency(df, freq):
 
     return df
 
+def transform_group_df_to_dict(df: pd.DataFrame, calendar_days: List[date], total: bool = False):
+    calendar_mapping = {}
+    for day in calendar_days:
+        try:
+            info = df.loc[day]
+            calendar_mapping[day] = {
+                "trades": info.number_of_trades,
+                "result": info.total_result
+            }
+        except KeyError:
+            # if total:
+            #     continue
+            calendar_mapping[day] = {}
+
+    return calendar_mapping
+
 
 def get_calendar_performance(
         data: List["Position"], year: int = date.today().year, 
@@ -193,21 +209,13 @@ def get_calendar_performance(
         df = df.loc[(df["open_date"].dt.month == month) & (df["open_date"].dt.year == year)]
     else:
         df = df.loc[df["open_date"].dt.year == year]
-    
-    df = group_df_by_frequency(df, unit_frequency)
-    
-    calendar_mapping = {}
-    for day in calendar_days:
-        try:
-            info = df.loc[day]
-            calendar_mapping[day] = {
-                "trades": info.number_of_trades,
-                "result": info.total_result
-            }
-        except KeyError:
-            calendar_mapping[day] = {}
+    unit_df = group_df_by_frequency(df, unit_frequency)
+    calendar_mapping = transform_group_df_to_dict(unit_df, calendar_days)
 
-    return calendar_mapping
+    summary_df = group_df_by_frequency(df, summary_frequency)
+    summary_calendar_mapping = transform_group_df_to_dict(summary_df, calendar_days, True)
+
+    return calendar_mapping, summary_calendar_mapping
 
 def get_positions_stats(data: List["Position"]) -> dict:
     df = modify_positions_stats(data)

@@ -177,7 +177,6 @@ class JournalApp(QMainWindow):
             returnBtn.clicked.connect(self.initTradeListUI)
             buttonsLayout.addWidget(returnBtn)
         layout.addWidget(self.topMenuButtonsWidget)
-    self.drawCalendarTable(layout, perf, year, month)
 
     def drawCalendarUI(self, *args, year = date.today().year, month = date.today().month) -> None:
         widget = QWidget()
@@ -194,6 +193,7 @@ class JournalApp(QMainWindow):
         self.drawCalendarTable(layout, perf, year, month)
 
     def drawCalendarTable(self, mLayout: QVBoxLayout, performance, year, month):
+        performance, summary = performance
         widget = QWidget()
         layout = QGridLayout()
         widget.setLayout(layout)
@@ -222,6 +222,13 @@ class JournalApp(QMainWindow):
             #     values = {}
             cell = self.constructCalendarCell(day.day if month else list(calendar.month_name)[n+1], values)
             layout.addWidget(cell, row_n, col_n)
+        row_n = 2
+        col_n = len(header_labels) or 3
+        for n, (day, values) in enumerate(summary.items(), start=1):
+            if n%col_n == 0:
+                cell = self.constructCalendarCell(f"{row_n-1} Week" if month else f"{row_n-1} Quarter", values)
+                layout.addWidget(cell, row_n, col_n+1)
+                row_n += 1
 
         mLayout.addWidget(widget)
 
