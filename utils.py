@@ -1,6 +1,6 @@
 import calendar
 import os
-from datetime import timedelta, datetime, date
+from datetime import timedelta, datetime, date, time, timezone
 from dataclasses import dataclass
 from typing import Callable, List
 
@@ -97,6 +97,17 @@ tradelist_fields: List[Field] = [
     )
 ]
 
+trading_hours = {
+    "rub": (
+        time(7, 0, 0, tzinfo=timezone.utc),
+        time(15, 40, 0, tzinfo=timezone.utc)
+    ),
+    "usd": (
+        time(11, 30, 0, tzinfo=timezone.utc),
+        time(22, 45, 0, tzinfo=timezone.utc)
+    )
+}
+
 def extract_money_amount(moneyObj: MoneyValue) -> float:
     return round(moneyObj.units + moneyObj.nano*0.000000001, 2)
 
@@ -115,6 +126,44 @@ def assign_class(position: "Position", widget: QWidget) -> QWidget:
     except Exception as e:
         print(e)
     return widget
+
+def time_in_trading_hours(currency: str, trade_time: time) -> bool:
+    trade_time = trade_time.replace(tzinfo=timezone.utc)
+    exchange_working_hours = trading_hours[currency]
+    return trade_time >= exchange_working_hours[0] and trade_time <= exchange_working_hours[1]
+
+def date_in_weekday(trade_date):
+    if trade_date and trade_date.weekday() not in (5, 6):
+        return False
+
+def get_applicable_datetime(position: "Position", intended_interval: timedelta,
+                            time_direction: str) -> datetime:
+    initial_time = position.close_date.replace(tzinfo=timezone.utc)
+    intended_datetime: datetime = initial_time + intended_interval
+    if (
+        (
+            time_in_trading_hours(position.currency, intended_datetime.time()) 
+            and intended_datetime.weekday() not in (5, 6)
+        )
+        or intended_interval < timedelta(0)
+        or (
+            intended_datetime.weekday == 6 
+            and time_direction == "from"
+            and intended_interval >= timedelta(1)
+        )
+    ):
+        return intended_datetime
+    else:
+        if intended_datetime.weekday() in (5, 6):
+            intended_datetime += timedelta(2)
+        if not time_in_trading_hours(position.currency, intended_datetime.time()):
+            time_between_sessions = (
+                (datetime.combine(date.min, trading_hours[position.currency][0]) + timedelta(1))
+                - datetime.combine(date.min, trading_hours[position.currency][1])
+            )
+            intended_datetime += time_between_sessions
+        return intended_datetime
+            
 
 def convert_timedelta_to_str(time: timedelta) -> str:
     days = f"{time.days}d "

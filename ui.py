@@ -216,18 +216,13 @@ class JournalApp(QMainWindow):
             if col_n == columns-1:
                 row_n += 1
             col_n = n - ((row_n - 2) * (columns))
-            # if col_n == columns - 2:
-            #     cell = self.constructCalendarCell("", values)
-            #     layout.addWidget(cell, row_n, columns - 1)
-            #     values = {}
             cell = self.constructCalendarCell(day.day if month else list(calendar.month_name)[n+1], values)
             layout.addWidget(cell, row_n, col_n)
         row_n = 2
-        col_n = len(header_labels) or 3
         for n, (day, values) in enumerate(summary.items(), start=1):
-            if n%col_n == 0:
+            if n%columns == 0:
                 cell = self.constructCalendarCell(f"{row_n-1} Week" if month else f"{row_n-1} Quarter", values)
-                layout.addWidget(cell, row_n, col_n+1)
+                layout.addWidget(cell, row_n, columns+1)
                 row_n += 1
 
         mLayout.addWidget(widget)

@@ -11,7 +11,7 @@ from tinkoff.invest.exceptions import RequestError
 from grpc import StatusCode
 
 from tables import Asset, Operation, AdditionalPayment, Position, ChartData, WalkAwayData
-from utils import extract_money_amount, get_account_info_from_env, set_account_info_to_env
+from utils import extract_money_amount, get_account_info_from_env, set_account_info_to_env, get_applicable_datetime
 
 load_dotenv(".env")
 
@@ -197,8 +197,8 @@ def get_walk_away_analysis_data(engine: Engine, token: str, position: Position) 
             for interval, values in candle_parameters.items():
                 candles = client.market_data.get_candles(
                     figi = figi,
-                    from_ = close_date + values.get("from"),
-                    to = close_date + values.get("to"),
+                    from_ = get_applicable_datetime(position, values.get("from"), "from"),
+                    to = get_applicable_datetime(position, values.get("to"), "to"),
                     interval = values.get("candle_range")
                 ).candles
                 if candles:
