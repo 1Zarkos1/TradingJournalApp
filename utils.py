@@ -147,7 +147,7 @@ def get_applicable_datetime(position: "Position", intended_interval: timedelta,
         )
         or intended_interval < timedelta(0)
         or (
-            intended_datetime.weekday == 6 
+            intended_datetime.weekday() == 6 
             and time_direction == "from"
             and intended_interval >= timedelta(1)
         )

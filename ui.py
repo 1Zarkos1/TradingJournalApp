@@ -6,6 +6,7 @@ import calendar
 from functools import partial
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Callable
+from copy import deepcopy
 
 from PyQt6.QtWidgets import (
     QApplication, 
@@ -372,7 +373,7 @@ class JournalApp(QMainWindow):
     def drawFilterField(self, update: bool = False) -> None:
         if update:
             currentFilter = self.filterWidget
-
+        
         self.filterWidget = QWidget()
         self.filterWidget.setProperty("class", "filter-container")
         layout = QHBoxLayout()
@@ -383,28 +384,37 @@ class JournalApp(QMainWindow):
         completer = QCompleter(self.tickersTraded)
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         filter_line.setCompleter(completer)
+        filter_line.setText(self.activeFilters.get("ticker"))
         filter_line.returnPressed.connect(lambda filter_line=filter_line: self.filterPositions("ticker", filter_line.text()))
         completer.activated.connect(lambda filter_line: self.filterPositions("ticker", filter_line))
         layout.addWidget(filter_line)
 
         side = QComboBox()
         side.addItems(["all", "short", "long"])
+        side.setCurrentText(self.activeFilters.get("side", "all"))
         side.currentTextChanged.connect(lambda filter_value: self.filterPositions("side", filter_value))
         layout.addWidget(side)
 
         status = QComboBox()
         status.addItems(["all", "win", "loss"])
+        status.setCurrentText(self.activeFilters.get("status", "all"))
         status.currentTextChanged.connect(lambda filter_value: self.filterPositions("status", filter_value))
         layout.addWidget(status)
 
         from_date = QDateTimeEdit()
-        from_date.setDateTime(self._accountOpenDate)
+        if active_from_date := self.activeFilters.get("from_date"):
+            from_date.setDateTime(active_from_date)
+        else:
+            from_date.setDateTime(self._accountOpenDate)
         from_date.dateTimeChanged.connect(lambda qdate: self.filterPositions("from_date", qdate.toPyDateTime()))
         from_date.setCalendarPopup(True)
         layout.addWidget(from_date)
 
         to_date = QDateTimeEdit()
-        to_date.setDateTime(datetime.now())
+        if active_to_date := self.activeFilters.get("to_date"):
+            to_date.setDateTime(active_to_date)
+        else:
+            to_date.setDateTime(datetime.now())
         to_date.dateTimeChanged.connect(lambda qdate: self.filterPositions("to_date", qdate.toPyDateTime()))
         to_date.setCalendarPopup(True)
         layout.addWidget(to_date)
