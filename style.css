@@ -48,7 +48,7 @@ QLabel.side {
     color: white;
     text-transform: uppercase;
 }
-.header-label {
+.header-label, .addition-page-header {
     background-color: #1d2331;
     color: #999eab;
     font-weight: bold;
@@ -85,7 +85,8 @@ QLabel.side {
     text-transform: uppercase;
     font-weight: bold;
 }
-.filter-container QWidget {
+.filter-container QWidget, .addition-form-container QLineEdit, .addition-form-container QComboBox,
+.addition-form-container QDateTimeEdit {
     background: transparent;
     text-transform: uppercase;
     color: #e4e7ea;
@@ -96,7 +97,7 @@ QLabel.side {
 .filter-container QPushButton {
     border: none;
 }
-.buttons-section QPushButton, .calendar-ui QPushButton {
+.buttons-section QPushButton, .calendar-ui QPushButton, .btn-warning {
     color: #e4e7ea;
     background-color: #009792;
     border-radius: 3px;
@@ -180,6 +181,24 @@ QScrollArea {
     border: 1px solid #545454;
 }
 .tl-try {
-    background: red;
+    background-color: #121721;
     padding: 0;
+}
+.position-ui QPushButton.btn-warning {
+    width: 250px;
+    background-color: #ff1c31;
+}
+.position-ui {
+    background-color: #121721;
+}
+.addition-form-container QLabel {
+    text-transform: uppercase;
+    color: #c4c4c4;
+    font-weight: bold;
+
+}
+.addition-page-header {
+    font-size: 13px;
+    color: #c4c4c4;
+    background-color: none;
 }

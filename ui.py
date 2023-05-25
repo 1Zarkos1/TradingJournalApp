@@ -43,7 +43,7 @@ from main import (
     get_walk_away_analysis_data, 
     get_chart_data
 )
-from tables import Position, Operation, get_engine, initialize_db
+from tables import Position, Operation, get_engine, initialize_db, Asset
 from utils import (
     get_positions_stats, 
     assign_class, 
@@ -110,6 +110,7 @@ class JournalApp(QMainWindow):
         self.selectedPositions = []
         self.sortingField = ("open_date", 0)
         self.tickersTraded = set([pos.ticker for pos in self._records])
+        self.setMinimumWidth(660)
         self.initTradeListUI()
  
     ### UI Draw Methods ###
@@ -142,7 +143,7 @@ class JournalApp(QMainWindow):
         central.setProperty("class", "centra-tradelist")
         central.setLayout(self.tradeListLayout)
 
-        self.drawTopMenuButtons(self.tradeListLayout)
+        self.drawTopMenuButtons(self.tradeListLayout, additionBtn=True)
         self.drawFilterField()
         self.drawTradeListTable()
         self.drawPageSelection()
@@ -151,7 +152,8 @@ class JournalApp(QMainWindow):
         self.setCentralWidget(central)
 
     def drawTopMenuButtons(self, layout: QVBoxLayout, returnBtn: bool = False, 
-                           calendarBtn: bool = True, calendarPeriod: str = "Month") -> None:
+                           calendarBtn: bool = True, calendarPeriod: str = "Month",
+                           additionBtn: bool = False) -> None:
         self.topMenuButtonsWidget = QWidget()
         buttonsLayout = QHBoxLayout()
         buttonsLayout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -163,9 +165,10 @@ class JournalApp(QMainWindow):
         syncTrades.clicked.connect(self.updateTrades)
         buttonsLayout.addWidget(accountChange)
         buttonsLayout.addWidget(syncTrades)
-        # switchToChart = QPushButton("Chart")
-        # switchToChart.clicked.connect(self.drawGraphPage)
-        # buttonsLayout.addWidget(switchToChart)
+        if additionBtn:
+            switchToAdd = QPushButton("Add Operation")
+            switchToAdd.clicked.connect(self.initAddOperationUI)
+            buttonsLayout.addWidget(switchToAdd)
         if calendarBtn:
             calendarSwitch = QPushButton(f"{calendarPeriod} calendar view")
             if calendarPeriod == "Month":
@@ -178,6 +181,90 @@ class JournalApp(QMainWindow):
             returnBtn.clicked.connect(self.initTradeListUI)
             buttonsLayout.addWidget(returnBtn)
         layout.addWidget(self.topMenuButtonsWidget)
+
+    def initAddOperationUI(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.drawTopMenuButtons(layout, returnBtn=True, calendarBtn=False, additionBtn=False)
+
+        pageHeader = QLabel("New Operation")
+        pageHeader.setProperty("class", "addition-page-header")
+        pageHeader.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(pageHeader)
+
+        self.drawFormUI(layout)
+
+
+    def drawFormUI(self, mainLayout):
+
+        widget = QWidget()
+        widget.setProperty("class", "addition-form-container")
+        layout = QVBoxLayout()
+        layout.setSpacing(0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        widget.setLayout(layout)
+
+        layout.addWidget(QLabel("Ticker"))
+        ticker = QLineEdit()
+        ticker.setPlaceholderText("Symbol")
+        with Session(self._engine) as session:
+            tickerList = Asset.get_figi_to_ticker_mapping(session)
+        completer = QCompleter(list(tickerList.values()))
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        ticker.setCompleter(completer)
+        layout.addWidget(ticker)
+
+        layout.addWidget(QLabel("Side"))
+        side = QComboBox()
+        side.addItems(["buy", "sell"])
+        layout.addWidget(side)
+
+        layout.addWidget(QLabel("Number of shares"))
+        shares = QLineEdit()
+        layout.addWidget(shares)
+
+        layout.addWidget(QLabel("Price"))
+        price = QLineEdit()
+        layout.addWidget(price)
+
+        layout.addWidget(QLabel("Fee"))
+        fee = QLineEdit()
+        layout.addWidget(fee)
+
+        layout.addWidget(QLabel("Operation time"))
+        operTime = QDateTimeEdit()
+        operTime.setDateTime(datetime.now())
+        operTime.setCalendarPopup(True)
+        layout.addWidget(operTime)
+
+        mainLayout.addWidget(widget)
+                
+        btnSection = QWidget()
+        buttonsLayout = QHBoxLayout()
+        buttonsLayout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        btnSection.setProperty("class", "buttons-section")
+        btnSection.setLayout(buttonsLayout)
+        saveBtn = QPushButton("Save operation")
+        buttonsLayout.addWidget(saveBtn)
+        clearBtn = QPushButton("Clear values")
+        clearBtn.clicked.connect(partial(self.clearFormFields, widget))
+        buttonsLayout.addWidget(clearBtn)
+
+        mainLayout.addWidget(btnSection)
+
+    def clearFormFields(self, formContainer: QWidget):
+        formFields = formContainer.findChildren((QDateTimeEdit, QLineEdit, QComboBox))
+        for field in formFields:
+            if isinstance(field, QLineEdit):
+                field.setText(None)
+            elif isinstance(field, QComboBox):
+                field.setCurrentText("buy")
+            else:
+                field.setDateTime(datetime.now())
 
     def drawCalendarUI(self, *args, year = date.today().year, month = date.today().month) -> None:
         widget = QWidget()
@@ -435,13 +522,13 @@ class JournalApp(QMainWindow):
         widget.setLayout(layout)
         widget.setProperty("class", "position-ui")
 
-        # scroll = QScrollArea()
-        # scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # scroll.setWidget(widget)
-        # scroll.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
-        # scroll.setWidgetResizable(True)
+        scroll = QScrollArea()
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(widget)
+        scroll.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding))
+        scroll.setWidgetResizable(True)
 
-        self.setCentralWidget(widget)
+        self.setCentralWidget(scroll)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.drawTopMenuButtons(layout, returnBtn=True)
@@ -461,12 +548,14 @@ class JournalApp(QMainWindow):
         delBtn.setProperty("class", "btn-warning")
         delBtn.clicked.connect(partial(self.deletePosition, position))
         layout.addWidget(delBtn, alignment=Qt.AlignmentFlag.AlignCenter)
+
         
     def drawPositionChart(self, layout: QVBoxLayout, position: Position) -> None:
         data = get_chart_data(self._engine, self._token, position)
         item = CandlestickItem(data)
         w = pg.PlotWidget()
         w.addItem(item)
+        w.setAxisItems({"bottom": pg.DateAxisItem()})
         open_ = position.open_date.replace(tzinfo=timezone.utc).timestamp()
         close = position.close_date.replace(tzinfo=timezone.utc).timestamp()
         targetLabelArgs = {
@@ -484,6 +573,7 @@ class JournalApp(QMainWindow):
         )
         w.addItem(openPriceTarget)
         w.addItem(closePriceTarget)
+        w.setMinimumHeight(300)
         layout.addWidget(w)
 
     def drawWalkAwaySection(self, layout: QVBoxLayout, position: Position, engine: "Engine", token: str) -> None:
