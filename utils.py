@@ -108,8 +108,11 @@ trading_hours = {
     )
 }
 
-def extract_money_amount(moneyObj: MoneyValue) -> float:
-    return round(moneyObj.units + moneyObj.nano*0.000000001, 2)
+def extract_money_amount(moneyObj: MoneyValue | float) -> float:
+    if isinstance(moneyObj, float):
+        return moneyObj
+    else:
+        return round(moneyObj.units + moneyObj.nano*0.000000001, 2)
 
 def assign_class(position: "Position", widget: QWidget) -> QWidget:
     class_ = "red"

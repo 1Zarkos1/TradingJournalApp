@@ -3,6 +3,7 @@ import csv
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import List
+from uuid import uuid4
 
 from dotenv import load_dotenv
 from sqlalchemy import (
@@ -37,7 +38,7 @@ def initialize_db(engine: Engine, name: str, base_mapper: DeclarativeBase = Base
         base_mapper.metadata.create_all(engine)
 
 def get_engine(account_name: str):
-    return create_engine(f"sqlite:///{account_name.lower()}_{DB_SUFFIX}")
+    return create_engine(f"sqlite:///{account_name.lower()}_{DB_SUFFIX}", echo=True)
 
 class Asset(Base):
     __tablename__ = "asset"
@@ -148,20 +149,27 @@ class Operation(Base):
         return self.quantity * self.share_price
     
     @classmethod
-    def add_operation(cls, operation: schemas.Operation, session: Session) -> None:
+    def add_operation(cls, operation: dict, session: Session) -> None:
         position = Position.get_related_position(operation, session)
+        print("happenig")
         operation_entry = cls(
-            id = operation.id,
-            ticker = operation.ticker,
+            id = operation.get("id", int(str(uuid4().int)[:16])),
+            ticker = operation.get("ticker"),
             position = position,
-            side = operation.operation_type,
-            time = operation.date.replace(tzinfo=timezone.utc),
-            quantity = operation.quantity,
-            price = extract_money_amount(operation.price),
-            fee = 0
+            side = operation.get("operation_type", operation.get("side")),
+            time = operation.get("date").replace(tzinfo=timezone.utc),
+            quantity = operation.get("quantity"),
+            price = extract_money_amount(operation.get("price")),
+            fee = operation.get("fee", 0)
         )
         session.add(operation_entry)
-        position.update(operation_entry, extract_money_amount(operation.payment))
+        position.update(
+            operation_entry, 
+            extract_money_amount(
+                operation.get("payment", 
+                              operation.get("price") * operation.get("quantity"))
+            )
+        )
 
     def add_fee(self, api_operation: schemas.Operation, session: Session) -> None:
         fee = extract_money_amount(api_operation.payment)
@@ -246,17 +254,17 @@ class Position(Base):
             )
     
     @classmethod
-    def get_related_position(cls, operation: schemas.Operation, session: Session) -> "Position":
+    def get_related_position(cls, operation: dict, session: Session) -> "Position":
         # check if there is any open position for particular ticker
         position = session.scalar(
             select(cls).where(and_(cls.closed == False, 
-                                   cls.ticker == operation.ticker))
+                                   cls.ticker == operation.get("ticker")))
         )
         if not position:
             position = cls(
-                ticker = operation.ticker,
-                side = operation.operation_type,
-                currency = operation.currency,
+                ticker = operation.get("ticker"),
+                side = operation.get("operation_type", operation.get("side")),
+                currency = operation.get("currency"),
                 open_price = 0,
                 result = 0
             )

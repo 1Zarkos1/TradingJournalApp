@@ -6,7 +6,6 @@ import calendar
 from functools import partial
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Callable
-from copy import deepcopy
 
 from PyQt6.QtWidgets import (
     QApplication, 
@@ -25,7 +24,9 @@ from PyQt6.QtWidgets import (
     QDateTimeEdit,
     QScrollArea,
     QMessageBox,
-    QSizePolicy
+    QSizePolicy,
+    QDoubleSpinBox,
+    QSpinBox
 )
 from PyQt6.QtCore import Qt, QEvent, QObject
 from PyQt6.QtGui import QFont, QMouseEvent, QIcon
@@ -208,9 +209,12 @@ class JournalApp(QMainWindow):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         widget.setLayout(layout)
 
+        values = {}
+
         layout.addWidget(QLabel("Ticker"))
         ticker = QLineEdit()
         ticker.setPlaceholderText("Symbol")
+        values["ticker"] = ticker.text
         with Session(self._engine) as session:
             tickerList = Asset.get_figi_to_ticker_mapping(session)
         completer = QCompleter(list(tickerList.values()))
@@ -220,24 +224,38 @@ class JournalApp(QMainWindow):
 
         layout.addWidget(QLabel("Side"))
         side = QComboBox()
+        values["side"] = side.currentText
         side.addItems(["buy", "sell"])
         layout.addWidget(side)
 
+        layout.addWidget(QLabel("Currency"))
+        currency = QComboBox()
+        values["currency"] = currency.currentText
+        currency.addItems(["rub", "usd"])
+        layout.addWidget(currency)
+
         layout.addWidget(QLabel("Number of shares"))
-        shares = QLineEdit()
+        shares = QSpinBox()
+        shares.setMaximum(999999)
+        values["quantity"] = shares.value
         layout.addWidget(shares)
 
         layout.addWidget(QLabel("Price"))
-        price = QLineEdit()
+        price = QDoubleSpinBox()
+        price.setMaximum(999999)
+        values["price"] = price.value
         layout.addWidget(price)
 
         layout.addWidget(QLabel("Fee"))
-        fee = QLineEdit()
+        fee = QDoubleSpinBox()
+        fee.setMaximum(999999)
+        values["fee"] = fee.value
         layout.addWidget(fee)
 
         layout.addWidget(QLabel("Operation time"))
         operTime = QDateTimeEdit()
         operTime.setDateTime(datetime.now())
+        values["date"] = operTime.dateTime
         operTime.setCalendarPopup(True)
         layout.addWidget(operTime)
 
@@ -249,12 +267,22 @@ class JournalApp(QMainWindow):
         btnSection.setProperty("class", "buttons-section")
         btnSection.setLayout(buttonsLayout)
         saveBtn = QPushButton("Save operation")
+        saveBtn.clicked.connect(partial(self.saveOperation, values))
         buttonsLayout.addWidget(saveBtn)
         clearBtn = QPushButton("Clear values")
         clearBtn.clicked.connect(partial(self.clearFormFields, widget))
         buttonsLayout.addWidget(clearBtn)
 
         mainLayout.addWidget(btnSection)
+
+    def saveOperation(self, data: dict):
+        data["date"] = data["date"]().toPyDateTime
+        for field in data:
+            data[field] = data[field]()
+        with Session(self._engine) as session:
+            Operation.add_operation(data, session)
+            session.commit()
+        self.initAddOperationUI()
 
     def clearFormFields(self, formContainer: QWidget):
         formFields = formContainer.findChildren((QDateTimeEdit, QLineEdit, QComboBox))

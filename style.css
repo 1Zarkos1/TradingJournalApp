@@ -86,7 +86,8 @@ QLabel.side {
     font-weight: bold;
 }
 .filter-container QWidget, .addition-form-container QLineEdit, .addition-form-container QComboBox,
-.addition-form-container QDateTimeEdit {
+.addition-form-container QDateTimeEdit, .addition-form-container QDoubleSpinBox,
+.addition-form-container QSpinBox {
     background: transparent;
     text-transform: uppercase;
     color: #e4e7ea;
@@ -191,7 +192,8 @@ QScrollArea {
 .position-ui {
     background-color: #121721;
 }
-.addition-form-container QLabel {
+.addition-form-container QLabel, .addition-form-container QDoubleSpinBox,
+.addition-form-container QSpinBox {
     text-transform: uppercase;
     color: #c4c4c4;
     font-weight: bold;

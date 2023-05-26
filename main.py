@@ -139,7 +139,7 @@ def record_operations(operations_response: List[Sdk_Operation], engine: Engine, 
                         Asset.populate_assets(client, session, [asset])
                         tickers[asset.figi] = asset.ticker
                         operation.ticker = asset.ticker
-                    Operation.add_operation(operation, session)
+                    Operation.add_operation(dict(operation), session)
                     operations_count += 1
         session.commit()
         return operations_count
