@@ -562,13 +562,15 @@ class JournalApp(QMainWindow):
         self.drawTopMenuButtons(layout, returnBtn=True)
 
         # draw chart
-        self.drawPositionChart(layout, position)
+        if position.closed:
+            self.drawPositionChart(layout, position)
         # draw trade summary info
         self.drawPositionSummary(layout, position)
         # draw executions summary
         self.drawOperationsSummary(layout, operations)
         # draw walk away analysis
-        self.drawWalkAwaySection(layout, position, self._engine, self._token)
+        if position.closed:
+            self.drawWalkAwaySection(layout, position, self._engine, self._token)
         # draw notes section
         self.drawNoteSection(layout, position)
 
@@ -635,7 +637,8 @@ class JournalApp(QMainWindow):
         table = self.drawTableWidget(data)
         layout.addWidget(table)
     
-    def drawNoteSection(self, layout: QVBoxLayout, position: Position, add_update: bool = False) -> None:
+    def drawNoteSection(self, layout: QVBoxLayout, position: Position, editor: bool = False, 
+                        oldSection: QWidget | None = None) -> None:
         noteSection = QWidget()
         noteSection.setProperty("class", "buttons-section note-section")
         nLayout = QVBoxLayout()
@@ -643,18 +646,23 @@ class JournalApp(QMainWindow):
         noteHeader = QLabel("notes".upper())
         noteHeader.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         noteHeader.setProperty("class", "header-label")
-        noteValue = QPlainTextEdit(position.note) if add_update else QLabel(position.note)
+        noteValue = QPlainTextEdit(position.note) if editor else QLabel(position.note)
         noteValue.setProperty("class", "note-edit")
         nLayout.addWidget(noteHeader)
         nLayout.addWidget(noteValue)
-        btnText = "Save note" if add_update else ("Add note" if not position.note else "Update note")
+        btnText = "Save note" if editor else ("Add note" if not position.note else "Update note")
         addButton = QPushButton(btnText)
-        addButton.clicked.connect(partial(self.processNote, position, noteValue, noteSection))
+        addButton.clicked.connect(partial(self.processNote, position, noteValue, noteSection, layout))
         delButton = QPushButton("Delete note")
-        delButton.clicked.connect(partial(self.processNote, position, QPlainTextEdit(), noteSection))
+        delButton.clicked.connect(partial(self.processNote, position, QPlainTextEdit(), noteSection, layout))
         nLayout.addWidget(addButton)
         nLayout.addWidget(delButton)
-        layout.addWidget(noteSection)
+        if oldSection:
+            layout.replaceWidget(oldSection, noteSection)
+            layout.removeWidget(oldSection)
+            oldSection.setParent(None)
+        else:
+            layout.addWidget(noteSection)
     
     def drawTotalStatsPage(self) -> None:
         self.statsPageWidget = QWidget()
@@ -814,19 +822,17 @@ class JournalApp(QMainWindow):
         self._records = Position.get_positions(self._engine)
         self.initTradeListUI()
     
-    def processNote(self, position: Position, noteWidget: QPlainTextEdit, noteSection: QWidget) -> None:
-        layout = self.centralWidget().layout()
-        layout.removeWidget(noteSection)
-        noteSection.setParent(None)
+    def processNote(self, position: Position, noteWidget: QPlainTextEdit, 
+                    noteSection: QWidget, layout: QVBoxLayout) -> None:
         if isinstance(noteWidget, QLabel):
-            self.drawNoteSection(layout, position, add_update=True)
+            self.drawNoteSection(layout, position, editor=True, oldSection=noteSection)
         else:
             position.note = noteWidget.toPlainText()
             with Session(self._engine) as session:
                 session.add(position)
                 session.commit()
                 session.refresh(position)
-            self.drawNoteSection(layout, position, add_update=False)
+            self.drawNoteSection(layout, position, editor=False, oldSection=noteSection)
 
     def deletePosition(self, position):
         # confirmation = QMessageBox(QMessageBox.Icon.Question, "Delete?", "Are you sure you want to delete this position?", 

@@ -178,7 +178,7 @@ def convert_timedelta_to_str(time: timedelta) -> str:
 
 def modify_positions_stats(
         data: List["Position"], closed_only: bool = True, 
-        exclude_outliers: bool = True) -> pd.DataFrame:
+        exclude_outliers: bool = False) -> pd.DataFrame:
     data = [pos.to_dict() for pos in data]
     df = pd.DataFrame(data=data)
     df = df.set_index("id")
